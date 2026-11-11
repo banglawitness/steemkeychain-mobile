@@ -4,7 +4,9 @@ import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider, initialWindowMetrics} from 'react-native-safe-area-context';
 import {VaultProvider} from './src/auth/VaultContext';
 import ActivityWatcher from './src/components/ActivityWatcher';
+import ButtonNavigationInset from './src/components/ButtonNavigationInset';
 import OpeningSplash from './src/components/OpeningSplash';
+import StoreUpdate from './src/components/StoreUpdate';
 import RootNavigator from './src/navigation/RootNavigator';
 import {ThemeProvider, useTheme} from './src/theme';
 
@@ -17,6 +19,7 @@ function Chrome() {
       <ActivityWatcher />
       <RootNavigator />
       {opening ? <OpeningSplash onDone={() => setOpening(false)} /> : null}
+      <StoreUpdate />
     </>
   );
 }
@@ -25,11 +28,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{flex: 1}}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <ThemeProvider>
-          <VaultProvider>
-            <Chrome />
-          </VaultProvider>
-        </ThemeProvider>
+        <ButtonNavigationInset>
+          <ThemeProvider>
+            <VaultProvider>
+              <Chrome />
+            </VaultProvider>
+          </ThemeProvider>
+        </ButtonNavigationInset>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

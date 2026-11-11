@@ -3,7 +3,7 @@
     "name": "Steem Keychain",
     "slug": "steem-keychain",
     "owner": "steem-keychains-team",
-    "version": "0.1.0",
+    "version": "1.00",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.steemkeychain.mobile",
-      "versionCode": 3,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0c1118"
@@ -60,7 +60,16 @@
         }
       ],
       "expo-status-bar",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Steem Keychain saves your receive QR code to photos.",
+          "savePhotosPermission": "Steem Keychain saves your receive QR code to photos.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": ["photo"]
+        }
+      ]
     ],
     "extra": {
       "eas": {

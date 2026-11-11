@@ -6,7 +6,7 @@ import {initialWindowMetrics, useSafeAreaInsets} from 'react-native-safe-area-co
 import {useVault} from '../auth/VaultContext';
 import AccountScreen from '../screens/AccountScreen';
 import ActivityScreen from '../screens/ActivityScreen';
-import SettingsScreen from '../screens/SettingsScreen';
+import SettingsScreen, {AboutScreen, PrivacyScreen} from '../screens/SettingsScreen';
 import AddKeyScreen from '../screens/AddKeyScreen';
 import BrowserScreen from '../screens/BrowserScreen';
 import GovernanceScreen from '../screens/governance/GovernanceScreen';
@@ -31,6 +31,7 @@ export type RootStackParamList = {
   Operate: {
     kind: 'transfer' | 'powerUp' | 'powerDown' | 'delegate' | 'savings' | 'convert' | 'claim';
     currency?: 'STEEM' | 'SBD';
+    to?: string;
   };
   Receive: undefined;
   History: undefined;
@@ -38,6 +39,8 @@ export type RootStackParamList = {
   Governance: undefined;
   Activity: undefined;
   Settings: undefined;
+  About: undefined;
+  Privacy: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -121,6 +124,8 @@ export default function RootNavigator() {
         <Stack.Screen name="Governance" component={GovernanceScreen} options={{title: 'Governance'}} />
         <Stack.Screen name="Activity" component={ActivityScreen} options={{title: 'Activity'}} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{title: 'Settings'}} />
+        <Stack.Screen name="About" component={AboutScreen} options={{title: 'About'}} />
+        <Stack.Screen name="Privacy" component={PrivacyScreen} options={{title: 'Privacy'}} />
       </Stack.Navigator>
     </NavigationContainer>
   );

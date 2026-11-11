@@ -13,9 +13,9 @@ export default function ScanScreen() {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
-  const {importAccounts} = useVault();
+  const {importAccounts, activeName} = useVault();
   const [permission, requestPermission] = useCameraPermissions();
-  const [status, setStatus] = useState('Point the camera at a Steem Keychain account QR code.');
+  const [status, setStatus] = useState('Scan an account name to send, or a Steem Keychain account QR code to import.');
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
   const collectedRef = useRef<StoredAccount[]>([]);
@@ -55,6 +55,15 @@ export default function ScanScreen() {
       await importAccounts(collectedRef.current);
       navigation.reset({index: 0, routes: [{name: 'Wallet'}]});
     } catch (cause) {
+      const name = accountNameOnly(data);
+      if (name && previousPages === 0) {
+        if (!activeName) {
+          setError('Add an account before sending.');
+          return;
+        }
+        navigation.replace('Operate', {kind: 'transfer', to: name});
+        return;
+      }
       collectedRef.current = previousAccounts;
       scannedPagesRef.current = previousPages;
       busyRef.current = false;
@@ -107,6 +116,11 @@ export default function ScanScreen() {
       )}
     </View>
   );
+}
+
+function accountNameOnly(data: string) {
+  const name = data.trim().replace(/^@/, '').toLowerCase();
+  return /^[a-z0-9.-]{3,16}$/.test(name) ? name : '';
 }
 
 function makeStyles(c: Palette) {

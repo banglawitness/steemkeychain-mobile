@@ -1,3 +1,4 @@
+import {Buffer} from 'buffer';
 import steem from 'steem';
 import Signature from 'steem/lib/auth/ecc/src/signature';
 import {applySavedRpc} from '../steem/rpc';
@@ -75,14 +76,25 @@ async function api<T>(method: string, args: unknown[]): Promise<T> {
   });
 }
 
+type HeadBlock = {
+  head_block_number: number;
+  head_block_id: string;
+  time: string;
+};
+
 export async function broadcastOperations(role: 'posting' | 'active', wif: string, operations: unknown[]) {
   await applySavedRpc();
-  return new Promise((resolve, reject) => {
-    steem.broadcast.send({extensions: [], operations}, {[role]: wif}, (error: unknown, result: unknown) => {
-      if (error) reject(error);
-      else resolve(result);
-    });
-  });
+  const props = await api<HeadBlock>('getDynamicGlobalProperties', []);
+  const head = Buffer.from(props.head_block_id, 'hex');
+  const signed = steem.auth.signTransaction({
+    ref_block_num: props.head_block_number & 0xffff,
+    ref_block_prefix: head.readUInt32LE(4),
+    expiration: new Date(Date.parse(`${props.time}Z`) + 90 * 1000),
+    extensions: [],
+    operations,
+  }, {[role]: wif});
+  await api('broadcastTransaction', [signed]);
+  return signed;
 }
 
 export function requestTitle(type: string) {

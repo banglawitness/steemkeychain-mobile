@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import {steemCall} from '../steem/client';
 
 const PREFS_KEY = 'steem.notice.prefs';
@@ -14,7 +13,6 @@ export type NoticePrefs = {
   mention: boolean;
   follow: boolean;
   transfer: boolean;
-  push: boolean;
 };
 
 export type Notice = {
@@ -31,17 +29,7 @@ const DEFAULT_PREFS: NoticePrefs = {
   mention: true,
   follow: true,
   transfer: true,
-  push: true,
 };
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
 
 export async function readNoticePrefs(): Promise<NoticePrefs> {
   const raw = await AsyncStorage.getItem(PREFS_KEY);
@@ -90,18 +78,7 @@ export async function refreshNotices(username: string): Promise<Notice[]> {
   }));
   if (!seeded) await AsyncStorage.setItem(SEEDED_KEY, '1');
   await AsyncStorage.setItem(NOTICES_KEY, JSON.stringify(next));
-  const brandNew = seeded ? next.filter(item => !previous.has(item.id) && !item.seen) : [];
-  if (brandNew.length && prefs.push) await presentLocal(brandNew[0].text);
   return next;
-}
-
-async function presentLocal(body: string) {
-  const permission = await Notifications.requestPermissionsAsync();
-  if (!permission.granted) return;
-  await Notifications.scheduleNotificationAsync({
-    content: {title: 'Steem Keychain', body},
-    trigger: null,
-  });
 }
 
 async function collectNotices(username: string, prefs: NoticePrefs): Promise<Notice[]> {

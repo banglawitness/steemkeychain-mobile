@@ -33,13 +33,14 @@ export default function WalletScreen() {
   const [open, setOpen] = useState<OpenRow>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     if (!activeName) {
       setBalances(null);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       setBalances(await loadBalances(activeName));
@@ -47,23 +48,32 @@ export default function WalletScreen() {
       setBalances(null);
       setError(cause instanceof Error ? cause.message : 'Could not load balances.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [activeName]);
 
   useEffect(() => {
-    refresh();
     loadPrices().then(setPrices).catch(() => setPrices(null));
-  }, [refresh]);
+  }, [activeName]);
 
   useFocusEffect(useCallback(() => {
-    unseenCount().then(setBadge).catch(() => setBadge(0));
-  }, []));
+    let alive = true;
+    unseenCount().then(count => { if (alive) setBadge(count); }).catch(() => undefined);
+    refresh();
+    const later = setTimeout(() => {
+      if (alive) refresh(true);
+    }, 4000);
+    return () => {
+      alive = false;
+      clearTimeout(later);
+    };
+  }, [refresh]));
 
   const go = (kind: RootStackParamList['Operate']['kind']) => navigation.navigate('Operate', {kind});
   const ready = Boolean(activeName);
   const total = totalUsd(balances, prices);
   const totalMove = portfolioChange(balances, prices);
+  const mask = (value: string) => (hidden ? '*****' : value);
 
   return (
     <View style={styles.screen}>
@@ -102,14 +112,21 @@ export default function WalletScreen() {
             <Text style={[styles.priceArrow, totalMove > 0 && styles.priceUp, totalMove < 0 && styles.priceDown]}>
               {totalMove > 0 ? '▲' : totalMove < 0 ? '▼' : '–'}
             </Text>
+            <View style={styles.valueSpacer} />
+            <Pressable
+              style={styles.eyeButton}
+              onPress={() => setHidden(value => !value)}
+              accessibilityLabel={hidden ? 'Show balances' : 'Hide balances'}>
+              <EyeMark hidden={hidden} color={colors.muted} />
+            </Pressable>
           </View>
-          <Text style={styles.total} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45}>{total || '—'}</Text>
+          <Text style={styles.total} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45}>{mask(total || '—')}</Text>
           <View style={styles.stats}>
             <Stat
               label="VP"
               value={balances?.votingMana ? `${balances.votingMana}%` : '—'}
               note="Vote value"
-              noteValue={balances?.voteValue ? `$${balances.voteValue}` : '—'}
+              noteValue={mask(balances?.voteValue ? `$${balances.voteValue}` : '—')}
             />
             <View style={styles.statSplit} />
             <Stat
@@ -137,9 +154,9 @@ export default function WalletScreen() {
           title="STEEM"
           hint="Liquid"
           hintGreen
-          amount={balances?.steem ?? '—'}
-          usd={money(valueOf(balances?.steem, prices?.steemUsd))}
-          extra={balances ? `Savings ${balances.savingsSteem}` : undefined}
+          amount={mask(balances?.steem ?? '—')}
+          usd={mask(money(valueOf(balances?.steem, prices?.steemUsd)))}
+          extra={balances ? `Savings ${mask(balances.savingsSteem)}` : undefined}
           open={open === 'STEEM'}
           onPress={() => setOpen(current => current === 'STEEM' ? null : 'STEEM')}
           actions={[
@@ -153,9 +170,9 @@ export default function WalletScreen() {
           logo={<SbdLogo size={36} />}
           title="SBD"
           hint="Steem Dollars"
-          amount={balances?.sbd ?? '—'}
-          usd={money(valueOf(balances?.sbd, prices?.sbdUsd))}
-          extra={balances ? `Savings ${balances.savingsSbd}` : undefined}
+          amount={mask(balances?.sbd ?? '—')}
+          usd={mask(money(valueOf(balances?.sbd, prices?.sbdUsd)))}
+          extra={balances ? `Savings ${mask(balances.savingsSbd)}` : undefined}
           open={open === 'SBD'}
           onPress={() => setOpen(current => current === 'SBD' ? null : 'SBD')}
           actions={[
@@ -171,8 +188,8 @@ export default function WalletScreen() {
           hint="Voting"
           hintGreen
           below="Steem Power"
-          amount={balances?.sp ?? '—'}
-          usd={money(valueOf(balances?.sp, prices?.steemUsd))}
+          amount={mask(balances?.sp ?? '—')}
+          usd={mask(money(valueOf(balances?.sp, prices?.steemUsd)))}
           open={open === 'SP'}
           onPress={() => setOpen(current => current === 'SP' ? null : 'SP')}
           actions={[
@@ -187,7 +204,7 @@ export default function WalletScreen() {
             <View style={styles.claimCopy}>
               <Text style={styles.claimTitle}>Rewards ready</Text>
               <Text style={styles.claimText}>
-                {balances?.rewardSteem} STEEM · {balances?.rewardSbd} SBD · {balances?.rewardSp} SP
+                {hidden ? '*****' : `${balances?.rewardSteem} STEEM · ${balances?.rewardSbd} SBD · ${balances?.rewardSp} SP`}
               </Text>
             </View>
             <Text style={styles.claimAction}>Claim</Text>
@@ -261,6 +278,16 @@ function PriceLine({name, amount, change}: {name: string; amount?: number; chang
       <Text style={styles.priceText}>{amount !== undefined ? money(amount) : '—'}</Text>
       <Text style={[styles.priceArrow, up && styles.priceUp, down && styles.priceDown]}>{up ? '▲' : down ? '▼' : '–'}</Text>
     </View>
+  );
+}
+
+function EyeMark({hidden, color}: {hidden: boolean; color: string}) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z" stroke={color} strokeWidth={2} />
+      {hidden ? <Path d="M4 5l16 14" stroke={color} strokeWidth={2} strokeLinecap="round" /> : null}
+    </Svg>
   );
 }
 
@@ -419,6 +446,8 @@ function makeStyles(c: Palette) {
   pickerMark: {color: c.accent, fontSize: 18, fontWeight: '800', width: 20, textAlign: 'center'},
   hero: {backgroundColor: c.card, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: c.line, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, marginBottom: 10},
   valueHead: {flexDirection: 'row', alignItems: 'center', gap: 6},
+  valueSpacer: {flex: 1},
+  eyeButton: {width: 28, height: 28, alignItems: 'center', justifyContent: 'center'},
   totalLabel: {color: c.muted, fontSize: 12, fontWeight: '700'},
   total: {color: c.text, fontSize: 34, fontWeight: '900', marginTop: 2},
   stats: {flexDirection: 'row', alignItems: 'stretch', marginTop: 12},

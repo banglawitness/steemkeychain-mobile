@@ -44,7 +44,7 @@ export default function OperationScreen() {
   const kind = route.params.kind;
   const {accounts, activeName, importAccounts} = useVault();
   const account = accounts.find(item => item.name === activeName);
-  const [to, setTo] = useState('');
+  const [to, setTo] = useState(route.params.to || '');
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
   const [currency, setCurrency] = useState<'STEEM' | 'SBD'>(route.params.currency || 'STEEM');
@@ -59,9 +59,11 @@ export default function OperationScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [scanLead, setScanLead] = useState('Scan a receive QR code. The account name fills in To.');
   const [saved, setSaved] = useState<string[]>([]);
   const [permission, requestPermission] = useCameraPermissions();
   const scanLock = useRef(false);
+  const scanFor = useRef<'to' | 'memo'>('to');
 
   useEffect(() => {
     if (!activeName) return;
@@ -89,12 +91,16 @@ export default function OperationScreen() {
     };
   }, [activeName, kind]);
 
-  const openRecipientScan = async () => {
+  const openScan = async (target: 'to' | 'memo') => {
     scanLock.current = false;
+    scanFor.current = target;
+    setScanLead(target === 'memo'
+      ? 'Scan a QR code. Its text fills in Memo.'
+      : 'Scan a receive QR code. The account name fills in To.');
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
-        setError('Allow the camera to scan a receive QR code.');
+        setError(target === 'memo' ? 'Allow the camera to scan a memo QR code.' : 'Allow the camera to scan a receive QR code.');
         return;
       }
     }
@@ -108,7 +114,16 @@ export default function OperationScreen() {
 
   const onRecipientScan = ({data}: BarcodeScanningResult) => {
     if (scanLock.current) return;
-    const name = accountFromQr(data);
+    const text = data.trim();
+    if (!text) return;
+    if (scanFor.current === 'memo') {
+      scanLock.current = true;
+      setMemo(text);
+      setError('');
+      setScanning(false);
+      return;
+    }
+    const name = accountFromQr(text);
     if (!name) {
       setError('That QR code does not contain a Steem account.');
       return;
@@ -284,7 +299,7 @@ export default function OperationScreen() {
                   placeholderTextColor={colors.muted}
                 />
                 <PasteButton onPress={() => pasteInto(setTo)} />
-                <Pressable style={styles.qrButton} onPress={openRecipientScan} accessibilityLabel="Scan QR code">
+                <Pressable style={styles.qrButton} onPress={() => openScan('to')} accessibilityLabel="Scan QR code">
                   <QrMark />
                 </Pressable>
               </View>
@@ -343,6 +358,11 @@ export default function OperationScreen() {
                   placeholderTextColor={colors.muted}
                 />
                 <PasteButton onPress={() => pasteInto(setMemo)} />
+                {kind === 'transfer' ? (
+                  <Pressable style={styles.qrButton} onPress={() => openScan('memo')} accessibilityLabel="Scan memo QR code">
+                    <QrMark />
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
           </>
@@ -397,7 +417,7 @@ export default function OperationScreen() {
       ) : null}
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
         <View style={styles.scanScreen}>
-          <Text style={styles.scanLead}>Scan a receive QR code. The account name fills in To.</Text>
+          <Text style={styles.scanLead}>{scanLead}</Text>
           <View style={styles.cameraWrap}>
             <CameraView
               style={styles.camera}

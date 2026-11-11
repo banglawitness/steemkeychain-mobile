@@ -1,6 +1,8 @@
 import {useEffect, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {useVault} from '../auth/VaultContext';
+import {executeRequest, failureMessage} from '../browser/requests';
+import ConfirmSheet from '../components/ConfirmSheet';
 import {APP_VERSION} from '../config';
 import {NoticePrefs, readNoticePrefs, writeNoticePrefs} from '../storage/notices';
 import {readAutoLock, writeAutoLock} from '../storage/security';
@@ -21,7 +23,6 @@ const NOTICES: {key: keyof NoticePrefs; label: string}[] = [
   {key: 'mention', label: 'Mentions'},
   {key: 'follow', label: 'Follows'},
   {key: 'transfer', label: 'Transfers'},
-  {key: 'push', label: 'Banners'},
 ];
 
 export default function SettingsScreen() {
@@ -29,7 +30,6 @@ export default function SettingsScreen() {
   const {mode, setMode} = useTheme();
   const styles = useThemedStyles(makeStyles);
   const {setBiometric, wipe} = useVault();
-  const [page, setPage] = useState<'main' | 'about' | 'privacy'>('main');
   const [autoLock, setAutoLock] = useState(60);
   const [biometric, setBiometricOn] = useState(false);
   const [prefs, setPrefs] = useState<NoticePrefs | null>(null);
@@ -69,32 +69,6 @@ export default function SettingsScreen() {
       setLatency({...results});
     }
   };
-
-  if (page !== 'main') {
-    const about = page === 'about';
-    return (
-      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-        <Pressable onPress={() => setPage('main')} hitSlop={8}>
-          <Text style={styles.back}>‹ Settings</Text>
-        </Pressable>
-        <View style={styles.card}>
-          <Text style={styles.pageTitle}>{about ? 'About' : 'Privacy'}</Text>
-          {about ? (
-            <>
-              <Text style={styles.body}>Steem Keychain {APP_VERSION}</Text>
-              <Text style={styles.note}>Balances, transfers, savings, governance, and dApp signing. Keys stay encrypted on this phone.</Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.note}>Keys are stored with AES-256. The PIN stays on this phone, and only the secure store sees it when fingerprint unlock is on.</Text>
-              <Text style={styles.note}>Nodes see account names and the operations you broadcast. Prices come from the Steem market and CoinGecko. There is no Steem Keychain server.</Text>
-              <Text style={styles.note}>You confirm every transaction. A transfer on the chain cannot be undone.</Text>
-            </>
-          )}
-        </View>
-      </ScrollView>
-    );
-  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -204,7 +178,7 @@ export default function SettingsScreen() {
 
       <Text style={styles.kicker}>Alerts</Text>
       <View style={styles.card}>
-        <Text style={styles.cardHint}>Shown in Activity while the app is open, and again when you return.</Text>
+        <Text style={styles.cardHint}>Shown in Activity.</Text>
         {prefs ? NOTICES.map((item, index) => (
           <Pressable
             key={item.key}
@@ -214,18 +188,6 @@ export default function SettingsScreen() {
             <Pill on={prefs[item.key]} />
           </Pressable>
         )) : null}
-      </View>
-
-      <Text style={styles.kicker}>About</Text>
-      <View style={styles.card}>
-        <Pressable style={styles.linkRow} onPress={() => setPage('about')}>
-          <Text style={styles.rowTitle}>Version {APP_VERSION}</Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
-        <Pressable style={[styles.linkRow, styles.rowLine]} onPress={() => setPage('privacy')}>
-          <Text style={styles.rowTitle}>Privacy</Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
       </View>
 
       <Text style={[styles.kicker, {color: colors.danger}]}>Erase</Text>
@@ -239,6 +201,87 @@ export default function SettingsScreen() {
           onPress={() => wipe().catch(cause => setError(cause instanceof Error ? cause.message : 'Could not clear this phone.'))}>
           <Text style={styles.dangerText}>Clear all data</Text>
         </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+export function AboutScreen() {
+  const styles = useThemedStyles(makeStyles);
+  const {accounts, activeName, importAccounts} = useVault();
+  const [voteOpen, setVoteOpen] = useState(false);
+  const [voteBusy, setVoteBusy] = useState(false);
+  const [voteError, setVoteError] = useState('');
+  const [voteNote, setVoteNote] = useState('');
+
+  const askWitnessVote = () => {
+    const account = accounts.find(item => item.name === activeName);
+    if (!account?.keys.active) {
+      setVoteError('This account has no active key, so it cannot vote for a witness.');
+      return;
+    }
+    setVoteError('');
+    setVoteOpen(true);
+  };
+
+  const sendWitnessVote = async () => {
+    const account = accounts.find(item => item.name === activeName);
+    if (!account) return;
+    setVoteBusy(true);
+    setVoteError('');
+    try {
+      await executeRequest({
+        type: 'witnessVote',
+        username: account.name,
+        witness: 'bangla.witness',
+        vote: true,
+      }, account, importAccounts);
+      setVoteOpen(false);
+      setVoteNote('Your vote for @bangla.witness was broadcast.');
+    } catch (cause) {
+      setVoteError(failureMessage(cause));
+    } finally {
+      setVoteBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <View style={styles.card}>
+          <Text style={styles.body}>Steem Keychain {APP_VERSION}</Text>
+          <Text style={styles.note}>Balances, transfers, savings, governance, and dApp signing. Keys stay encrypted on this phone.</Text>
+          <Text style={styles.note}>Built by the bangla.witness team.</Text>
+          <Text style={styles.note}>To support this wallet, vote for the witness @bangla.witness.</Text>
+          <Pressable style={styles.add} onPress={askWitnessVote}>
+            <Text style={styles.addText}>Vote for @bangla.witness</Text>
+          </Pressable>
+          {voteNote ? <Text style={styles.voteNote}>{voteNote}</Text> : null}
+          {voteError && !voteOpen ? <Text style={styles.error}>{voteError}</Text> : null}
+        </View>
+      </ScrollView>
+      {voteOpen && activeName ? (
+        <ConfirmSheet
+          title="Vote witness"
+          lines={[`Account @${activeName}`, 'Vote for @bangla.witness']}
+          busy={voteBusy}
+          error={voteError}
+          onCancel={() => { if (!voteBusy) { setVoteOpen(false); setVoteError(''); } }}
+          onConfirm={sendWitnessVote}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+export function PrivacyScreen() {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <View style={styles.card}>
+        <Text style={styles.note}>Keys are stored with AES-256. The PIN stays on this phone, and only the secure store sees it when fingerprint unlock is on.</Text>
+        <Text style={styles.note}>Nodes see account names and the operations you broadcast. Prices come from the Steem market and CoinGecko. There is no Steem Keychain server.</Text>
+        <Text style={styles.note}>You confirm every transaction. A transfer on the chain cannot be undone.</Text>
       </View>
     </ScrollView>
   );
@@ -308,8 +351,6 @@ function makeStyles(c: Palette) {
     input: {backgroundColor: c.background, color: c.text, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15},
     add: {marginTop: 10, backgroundColor: c.accent, borderRadius: 12, paddingVertical: 12, alignItems: 'center'},
     addText: {color: c.onAccent, fontWeight: '800'},
-    linkRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4},
-    chevron: {color: c.muted, fontSize: 22, fontWeight: '400'},
     check: {flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 12},
     box: {width: 22, height: 22, borderRadius: 7, borderWidth: 1, borderColor: c.line, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center'},
     boxOn: {backgroundColor: c.accent, borderColor: c.accent},
@@ -319,9 +360,8 @@ function makeStyles(c: Palette) {
     dangerText: {color: '#ffffff', fontWeight: '800'},
     disabled: {opacity: 0.4},
     error: {color: c.danger, marginTop: 10, lineHeight: 18},
-    back: {color: c.accent, fontWeight: '800', fontSize: 15, marginBottom: 12},
-    pageTitle: {color: c.text, fontSize: 22, fontWeight: '800', marginBottom: 10},
     body: {color: c.text, fontSize: 16, fontWeight: '700', marginBottom: 8},
     note: {color: c.muted, lineHeight: 20, marginBottom: 10},
+    voteNote: {color: c.accentDeep, lineHeight: 20, marginTop: 12},
   });
 }

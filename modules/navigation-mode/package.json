@@ -1,0 +1,11 @@
+{
+  "name": "navigation-mode",
+  "version": "1.0.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

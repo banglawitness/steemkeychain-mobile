@@ -4,6 +4,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Animated, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useVault} from '../auth/VaultContext';
+import {APP_VERSION} from '../config';
 import {RootStackParamList} from '../navigation/RootNavigator';
 import {Palette, useThemedStyles} from '../theme';
 
@@ -42,7 +43,7 @@ export default function AccountDrawer({open, onClose}: Props) {
 
   if (!shown) return null;
 
-  const go = (route: 'Governance' | 'Settings' | 'Account' | 'AddKey' | 'Import' | 'Export') => {
+  const go = (route: 'Governance' | 'Settings' | 'About' | 'Privacy' | 'Account' | 'AddKey' | 'Import' | 'Export') => {
     onClose();
     navigation.navigate(route);
   };
@@ -66,7 +67,7 @@ export default function AccountDrawer({open, onClose}: Props) {
             <Text style={styles.closeText}>‹</Text>
           </Pressable>
         </View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+        <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
           <Segment title="Account">
             <Row label="Manage keys" disabled={!activeName} onPress={() => go('Account')} />
             <Row label="Add account" onPress={() => go('AddKey')} />
@@ -75,12 +76,15 @@ export default function AccountDrawer({open, onClose}: Props) {
           </Segment>
           <Segment title="App">
             <Row label="Governance" disabled={!activeName} onPress={() => go('Governance')} />
-            <Row label="Settings" last onPress={() => go('Settings')} />
+            <Row label="Settings" onPress={() => go('Settings')} />
+            <Row label="About" onPress={() => go('About')} />
+            <Row label="Privacy" last onPress={() => go('Privacy')} />
           </Segment>
           <Pressable style={styles.lock} onPress={() => { onClose(); lock(); }}>
             <Text style={styles.lockText}>Lock</Text>
           </Pressable>
         </ScrollView>
+        <Text style={styles.version}>Version {APP_VERSION}</Text>
       </Animated.View>
     </View>
   );
@@ -125,7 +129,9 @@ function makeStyles(c: Palette) {
   headTitle: {color: '#00d3cc', fontSize: 16, fontWeight: '800', flexShrink: 1},
   close: {width: 36, height: 36, borderRadius: 8, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center'},
   closeText: {color: c.text, fontSize: 22, fontWeight: '600', lineHeight: 24},
-  list: {paddingHorizontal: 12, paddingBottom: 16},
+  scroll: {flex: 1},
+  list: {paddingHorizontal: 12, paddingBottom: 16, flexGrow: 1},
+  version: {color: c.muted, fontSize: 12, fontWeight: '600', textAlign: 'center', paddingBottom: 14, paddingTop: 8},
   block: {marginTop: 14},
   kicker: {color: c.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4},
   segment: {backgroundColor: c.background, borderRadius: 10, overflow: 'hidden'},
