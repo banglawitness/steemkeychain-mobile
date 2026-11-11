@@ -31,8 +31,4 @@ Open the project in Expo Go (SDK 58). Chain calls use the `steem` package and `h
 
 ## Privacy
 
-The privacy policy is `docs/index.html`. After GitHub Pages is enabled for the `/docs` folder, its address is:
-
-`https://USERNAME.github.io/REPOSITORY/`
-
-Replace `your-email@gmail.com` in that file before you submit the link to Google Play.
+The privacy policy is `docs/index.html`. After GitHub Pages is enabled for the `/docs` folder.
