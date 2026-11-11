@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Steem Keychain",
+    "slug": "steem-keychain",
+    "owner": "steem-keychains-team",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "scheme": "steem",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.steemkeychain.mobile",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.steemkeychain.mobile",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0c1118"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
+              "scheme": "steem"
+            },
+            {
+              "scheme": "keychain"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-local-authentication",
+      "expo-document-picker",
+      "expo-localization",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Steem Keychain uses the camera to scan account and transaction QR codes."
+        }
+      ],
+      "expo-status-bar",
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5d8f5985-ffcd-49c6-9e4d-f2fe374de90a"
+      }
+    }
+  }
+}
