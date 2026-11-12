@@ -33,7 +33,7 @@ import {
   saveHistory,
   saveSession,
 } from '../browser/browserStore';
-import {executeRequest, failureMessage, KeychainRequest, requiredRole} from '../browser/requests';
+import {executeRequest, failureMessage, KeychainRequest, requestTitle, requiredRole} from '../browser/requests';
 import BottomBar from '../components/BottomBar';
 import RequestSheet from '../components/RequestSheet';
 import {RootStackParamList} from '../navigation/RootNavigator';
@@ -342,6 +342,14 @@ export default function BrowserScreen() {
       {text: 'Cancel', style: 'cancel'},
       {text: 'OK', onPress: clearCache},
     ]);
+  };
+
+  const forgetAllowed = (entry: AllowedOperation) => {
+    setAllowed(current => {
+      const next = current.filter(item => item.host !== entry.host || item.username !== entry.username || item.type !== entry.type);
+      saveAllowed(next);
+      return next;
+    });
   };
 
   const askClearHistory = () => {
@@ -719,6 +727,23 @@ export default function BrowserScreen() {
                     <Text style={styles.settingLine}>Removes the list of pages you opened in this browser.</Text>
                   </View>
                 </Pressable>
+                <Text style={styles.startKicker}>Don't ask again</Text>
+                {allowed.length ? allowed.map(item => (
+                  <View key={`${item.host}-${item.username}-${item.type}`} style={styles.settingCard}>
+                    <View style={styles.startCopy}>
+                      <Text style={styles.settingTitle} numberOfLines={1}>{item.host}</Text>
+                      <Text style={styles.settingLine} numberOfLines={1}>@{item.username} · {requestTitle(item.type)}</Text>
+                    </View>
+                    <Pressable
+                      style={styles.settingToggle}
+                      onPress={() => forgetAllowed(item)}
+                      accessibilityLabel={`Turn off ${requestTitle(item.type)} on ${item.host}`}>
+                      <Text style={styles.settingToggleText}>Off</Text>
+                    </Pressable>
+                  </View>
+                )) : (
+                  <Text style={styles.emptyLine}>No sites are set to skip confirmation.</Text>
+                )}
                 {settingNote ? <Text style={styles.settingNote}>{settingNote}</Text> : null}
               </View>
             ) : home === 'sites' ? START.map(group => (

@@ -185,11 +185,11 @@ function asset(value: unknown, symbol: string): string {
   const text = String(value ?? '').trim();
   if (/^[0-9]+(\.[0-9]+)? [A-Z]+$/.test(text)) {
     const [amount, name] = text.split(' ');
-    return `${Number(amount).toFixed(name === 'VESTS' ? 6 : 3)} ${name === 'HIVE' ? 'STEEM' : name === 'HBD' ? 'SBD' : name}`;
+    return `${Number(amount).toFixed(name === 'VESTS' ? 6 : 3)} ${name === 'HBD' ? 'SBD' : name}`;
   }
   const amount = Number(text);
   if (!Number.isFinite(amount)) throw new Error('Amount is not a number.');
-  const name = symbol === 'HIVE' ? 'STEEM' : symbol === 'HBD' ? 'SBD' : symbol === 'HP' ? 'VESTS' : symbol;
+  const name = symbol === 'HBD' ? 'SBD' : symbol === 'HP' ? 'VESTS' : symbol;
   return `${amount.toFixed(name === 'VESTS' ? 6 : 3)} ${name}`;
 }
 
@@ -338,13 +338,13 @@ export async function executeRequest(
       ]);
     }
     case 'powerUp': {
-      const amount = asset(request.steem ?? request.hive, 'STEEM');
+      const amount = asset(request.steem, 'STEEM');
       return broadcastOperations('active', privateKey(account, 'active'), [
         ['transfer_to_vesting', {from: name, to: String(request.recipient || name), amount}],
       ]);
     }
     case 'powerDown': {
-      const vestingShares = await powerToVests(Number(request.steem_power ?? request.hive_power ?? 0));
+      const vestingShares = await powerToVests(Number(request.steem_power ?? 0));
       return broadcastOperations('active', privateKey(account, 'active'), [
         ['withdraw_vesting', {account: name, vesting_shares: vestingShares}],
       ]);

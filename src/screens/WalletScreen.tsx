@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {BlurView} from 'expo-blur';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
@@ -18,6 +19,9 @@ import {Balances} from '../types';
 
 type OpenRow = 'STEEM' | 'SBD' | 'SP' | null;
 
+const HIDE_BALANCES_KEY = 'steem.wallet.hideBalances';
+let hideBalancesCache: boolean | null = null;
+
 export default function WalletScreen() {
   const colors = useColors();
   const {mode} = useTheme();
@@ -33,7 +37,8 @@ export default function WalletScreen() {
   const [open, setOpen] = useState<OpenRow>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(hideBalancesCache === true);
+  const [hideReady, setHideReady] = useState(hideBalancesCache !== null);
 
   const refresh = useCallback(async (silent = false) => {
     if (!activeName) {
@@ -56,6 +61,22 @@ export default function WalletScreen() {
     loadPrices().then(setPrices).catch(() => setPrices(null));
   }, [activeName]);
 
+  useEffect(() => {
+    let alive = true;
+    AsyncStorage.getItem(HIDE_BALANCES_KEY).then(value => {
+      const next = value === '1';
+      hideBalancesCache = next;
+      if (!alive) return;
+      setHidden(next);
+      setHideReady(true);
+    }).catch(() => {
+      if (alive) setHideReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   useFocusEffect(useCallback(() => {
     let alive = true;
     unseenCount().then(count => { if (alive) setBadge(count); }).catch(() => undefined);
@@ -73,7 +94,17 @@ export default function WalletScreen() {
   const ready = Boolean(activeName);
   const total = totalUsd(balances, prices);
   const totalMove = portfolioChange(balances, prices);
-  const mask = (value: string) => (hidden ? '*****' : value);
+  const concealed = !hideReady || hidden;
+  const mask = (value: string) => (concealed ? '*****' : value);
+  const toggleHidden = () => {
+    if (!hideReady) return;
+    setHidden(value => {
+      const next = !value;
+      hideBalancesCache = next;
+      AsyncStorage.setItem(HIDE_BALANCES_KEY, next ? '1' : '0').catch(() => undefined);
+      return next;
+    });
+  };
 
   return (
     <View style={styles.screen}>
@@ -115,9 +146,9 @@ export default function WalletScreen() {
             <View style={styles.valueSpacer} />
             <Pressable
               style={styles.eyeButton}
-              onPress={() => setHidden(value => !value)}
-              accessibilityLabel={hidden ? 'Show balances' : 'Hide balances'}>
-              <EyeMark hidden={hidden} color={colors.muted} />
+              onPress={toggleHidden}
+              accessibilityLabel={concealed ? 'Show balances' : 'Hide balances'}>
+              <EyeMark hidden={concealed} color={colors.muted} />
             </Pressable>
           </View>
           <Text style={styles.total} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45}>{mask(total || '—')}</Text>
@@ -204,7 +235,7 @@ export default function WalletScreen() {
             <View style={styles.claimCopy}>
               <Text style={styles.claimTitle}>Rewards ready</Text>
               <Text style={styles.claimText}>
-                {hidden ? '*****' : `${balances?.rewardSteem} STEEM · ${balances?.rewardSbd} SBD · ${balances?.rewardSp} SP`}
+                {mask(`${balances?.rewardSteem} STEEM · ${balances?.rewardSbd} SBD · ${balances?.rewardSp} SP`)}
               </Text>
             </View>
             <Text style={styles.claimAction}>Claim</Text>
