@@ -29,10 +29,10 @@ export default function ReceiveScreen() {
   const saveQr = async () => {
     if (!qrRef.current || saving) return;
     setNote('');
-    const permission = await requestPermissionsAsync(true, ['photo']);
-    if (!permission.granted) {
-      setNote('Allow photos to save the QR code.');
-      return;
+    try {
+      await requestPermissionsAsync(true);
+    } catch {
+      // Saving the generated QR does not need access to existing photos.
     }
     setSaving(true);
     qrRef.current.toDataURL(async base64 => {

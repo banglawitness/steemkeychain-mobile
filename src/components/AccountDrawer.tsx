@@ -1,8 +1,9 @@
 import {useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
 import React, {useEffect, useRef, useState} from 'react';
-import {Animated, Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Animated, Dimensions, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import Svg, {Path} from 'react-native-svg';
 import {useVault} from '../auth/VaultContext';
 import {APP_VERSION} from '../config';
 import {RootStackParamList} from '../navigation/RootNavigator';
@@ -14,6 +15,7 @@ type Props = {
 };
 
 const PANEL_WIDTH = Math.round(Dimensions.get('window').width * 0.7);
+const DISCORD_URL = 'https://discord.gg/RpCUTjk5Yw';
 
 export default function AccountDrawer({open, onClose}: Props) {
   const styles = useThemedStyles(makeStyles);
@@ -72,7 +74,7 @@ export default function AccountDrawer({open, onClose}: Props) {
             <Row label="Manage keys" disabled={!activeName} onPress={() => go('Account')} />
             <Row label="Add account" onPress={() => go('AddKey')} />
             <Row label="Import" onPress={() => go('Import')} />
-            <Row label="Export QR" last disabled={accounts.length === 0} onPress={() => go('Export')} />
+            <Row label="Export" last disabled={accounts.length === 0} onPress={() => go('Export')} />
           </Segment>
           <Segment title="App">
             <Row label="Governance" disabled={!activeName} onPress={() => go('Governance')} />
@@ -84,7 +86,20 @@ export default function AccountDrawer({open, onClose}: Props) {
             <Text style={styles.lockText}>Lock</Text>
           </Pressable>
         </ScrollView>
-        <Text style={styles.version}>Version {APP_VERSION}</Text>
+        <View style={styles.versionRow}>
+          <Text style={styles.version}>Version {APP_VERSION}</Text>
+          <Pressable
+            style={styles.discord}
+            onPress={() => Linking.openURL(DISCORD_URL)}
+            accessibilityLabel="Open Discord">
+            <Svg width={18} height={18} viewBox="0 0 24 24">
+              <Path
+                fill="#ffffff"
+                d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.37-.44.86-.6 1.25-1.85-.28-3.68-.28-5.49 0-.16-.39-.41-.87-.62-1.25a.08.08 0 0 0-.08-.04 19.74 19.74 0 0 0-4.88 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.05c2.05 1.51 4.04 2.42 5.99 3.03a.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.23-1.99a.08.08 0 0 0-.04-.11 12.3 12.3 0 0 1-1.87-.89.08.08 0 0 1-.01-.13c.13-.09.25-.19.37-.29a.07.07 0 0 1 .08-.01c3.93 1.79 8.18 1.79 12.06 0a.07.07 0 0 1 .08.01c.12.1.25.2.37.29a.08.08 0 0 1-.01.13 12.3 12.3 0 0 1-1.87.89.08.08 0 0 0-.04.11c.36.7.77 1.36 1.23 1.99a.08.08 0 0 0 .08.03c1.96-.61 3.95-1.52 6-3.03a.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"
+              />
+            </Svg>
+          </Pressable>
+        </View>
       </Animated.View>
     </View>
   );
@@ -131,7 +146,9 @@ function makeStyles(c: Palette) {
   closeText: {color: c.text, fontSize: 22, fontWeight: '600', lineHeight: 24},
   scroll: {flex: 1},
   list: {paddingHorizontal: 12, paddingBottom: 16, flexGrow: 1},
-  version: {color: c.muted, fontSize: 12, fontWeight: '600', textAlign: 'center', paddingBottom: 14, paddingTop: 8},
+  versionRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingBottom: 14, paddingTop: 8, paddingHorizontal: 12},
+  version: {color: c.muted, fontSize: 12, fontWeight: '600'},
+  discord: {width: 28, height: 28, borderRadius: 8, backgroundColor: '#5865F2', alignItems: 'center', justifyContent: 'center'},
   block: {marginTop: 14},
   kicker: {color: c.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4},
   segment: {backgroundColor: c.background, borderRadius: 10, overflow: 'hidden'},

@@ -2,7 +2,9 @@ import {RouteProp, useFocusEffect, useNavigation, useRoute} from '@react-navigat
 import {StackNavigationProp} from '@react-navigation/stack';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  Alert,
   Animated,
+  BackHandler,
   Easing,
   Keyboard,
   Pressable,
@@ -21,10 +23,12 @@ import {
   AllowedOperation,
   BrowserLink,
   loadAllowed,
+  loadDesktopSite,
   loadFavorites,
   loadHistory,
   loadSession,
   saveAllowed,
+  saveDesktopSite,
   saveFavorites,
   saveHistory,
   saveSession,
@@ -65,6 +69,7 @@ const START = [
 const EXPLORE = START.flatMap(group => group.sites);
 
 const ADDRESS_BAR = 48;
+const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 let nextTabId = 1;
 
 export default function BrowserScreen() {
@@ -90,6 +95,8 @@ export default function BrowserScreen() {
   const settledUrl = useRef('');
   const startedAt = useRef(0);
   const webRef = useRef<WebView<{}>>(null);
+  const cacheRef = useRef<WebView<{}>>(null);
+  const trails = useRef<Record<number, string[]>>({});
   const addressRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const searchFor = useRef('');
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,7 +114,10 @@ export default function BrowserScreen() {
   }, []));
   const [history, setHistory] = useState<BrowserLink[]>([]);
   const [bookmarks, setBookmarks] = useState<BrowserLink[]>([]);
-  const [home, setHome] = useState<'sites' | 'bookmarks'>('sites');
+  const [home, setHome] = useState<'sites' | 'bookmarks' | 'settings'>('sites');
+  const [desktop, setDesktop] = useState(false);
+  const [settingNote, setSettingNote] = useState('');
+  const [wiping, setWiping] = useState(false);
   const [allowed, setAllowed] = useState<AllowedOperation[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
@@ -115,10 +125,11 @@ export default function BrowserScreen() {
   const active = tabs.find(tab => tab.id === activeId) || tabs[0];
 
   useEffect(() => {
-    Promise.all([loadHistory(), loadFavorites(), loadAllowed(), loadSession()]).then(([hist, saved, allow, session]) => {
+    Promise.all([loadHistory(), loadFavorites(), loadAllowed(), loadSession(), loadDesktopSite()]).then(([hist, saved, allow, session, desktopOn]) => {
       setHistory(hist);
       setBookmarks(saved);
       setAllowed(allow);
+      setDesktop(desktopOn);
       if (session?.tabs.length) {
         const restored = session.tabs.map(tab => ({id: nextTabId++, url: tab.url, title: tab.title || 'New tab'}));
         const index = Math.min(Math.max(session.active, 0), restored.length - 1);
@@ -222,13 +233,19 @@ export default function BrowserScreen() {
     setTabs(current => current.map(tab => (tab.id === id ? {...tab, ...patch} : tab)));
   };
 
-  const go = (url: string) => {
+  const showUrl = (url: string) => {
     updateTab(active.id, {url, title: url});
     setAddress(url);
     settledUrl.current = '';
     if (url === webSource) webRef.current?.reload();
     else setWebSource(url);
     beginLoad();
+  };
+
+  const go = (url: string) => {
+    const trail = trails.current[active.id] || [];
+    trails.current[active.id] = trail[trail.length - 1] === url ? trail : [...trail, url];
+    showUrl(url);
   };
 
   useEffect(() => {
@@ -296,6 +313,42 @@ export default function BrowserScreen() {
       saveFavorites(next);
       return next;
     });
+  };
+
+  const toggleDesktop = () => {
+    setDesktop(current => {
+      const next = !current;
+      saveDesktopSite(next);
+      return next;
+    });
+    setSettingNote('');
+  };
+
+  const clearCache = () => {
+    webRef.current?.clearCache(true);
+    webRef.current?.clearFormData?.();
+    setSettingNote('Cache cleared.');
+    setWiping(true);
+  };
+
+  const clearBrowserHistory = () => {
+    setHistory([]);
+    saveHistory([]);
+    setSettingNote('History cleared.');
+  };
+
+  const askClearCache = () => {
+    Alert.alert('Clear cache', 'Saved page files and form data will be removed.', [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'OK', onPress: clearCache},
+    ]);
+  };
+
+  const askClearHistory = () => {
+    Alert.alert('Clear history', 'The list of pages you opened in this browser will be removed.', [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'OK', onPress: clearBrowserHistory},
+    ]);
   };
 
   const rememberHistory = (url: string, title: string) => {
@@ -463,6 +516,7 @@ export default function BrowserScreen() {
     Keyboard.dismiss();
   };
   const closeTab = (id: number) => {
+    delete trails.current[id];
     setTabs(current => {
       const next = current.filter(item => item.id !== id);
       if (!next.length) {
@@ -481,11 +535,62 @@ export default function BrowserScreen() {
     });
   };
 
+  const showHome = () => {
+    trails.current[active.id] = [];
+    updateTab(active.id, {url: '', title: 'New tab'});
+    setAddress('');
+    setWebSource('');
+    setCanGoBack(false);
+    setCanGoForward(false);
+    setEditingAddress(false);
+    Keyboard.dismiss();
+  };
+
+  const backInBrowser = () => {
+    if (switcher) {
+      setSwitcher(false);
+      return true;
+    }
+    if (editingAddress) {
+      setEditingAddress(false);
+      Keyboard.dismiss();
+      setAddress(active.url);
+      return true;
+    }
+    if (pending) {
+      reject(pending.request, pending.requestId, 'Request was canceled by the user.');
+      setPending(null);
+      setError('');
+      return true;
+    }
+    if (canGoBack) {
+      webRef.current?.goBack();
+      return true;
+    }
+    const trail = trails.current[active.id] || [];
+    if (trail.length > 1) {
+      const next = trail.slice(0, -1);
+      trails.current[active.id] = next;
+      showUrl(next[next.length - 1]);
+      return true;
+    }
+    if (active.url) {
+      showHome();
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => backInBrowser());
+    return () => sub.remove();
+  });
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <Animated.View style={[styles.barClip, {height: barHeight}]}>
           <View style={styles.toolbar}>
-            {editingAddress ? null : <IconButton glyph="‹" disabled={!canGoBack} onPress={() => webRef.current?.goBack()} />}
+            {editingAddress ? null : <IconButton glyph="‹" disabled={!canGoBack && !active.url} onPress={backInBrowser} />}
             {editingAddress ? null : <IconButton glyph="›" disabled={!canGoForward} onPress={() => webRef.current?.goForward()} />}
             <View style={styles.addressWrap}>
               <TextInput
@@ -575,16 +680,48 @@ export default function BrowserScreen() {
         {startPage ? (
           <ScrollView style={styles.web} contentContainerStyle={[styles.start, {paddingBottom: insets.bottom + 150}]} keyboardShouldPersistTaps="handled">
             <View style={styles.homeSwitch}>
-              {(['sites', 'bookmarks'] as const).map(id => {
+              {([
+                ['sites', 'Popular sites'],
+                ['bookmarks', 'Bookmarks'],
+                ['settings', 'Settings'],
+              ] as const).map(([id, label]) => {
                 const on = home === id;
                 return (
                   <Pressable key={id} style={[styles.homeTab, on && styles.homeTabOn]} onPress={() => setHome(id)}>
-                    <Text style={[styles.homeTabText, on && styles.homeTabTextOn]}>{id === 'sites' ? 'Popular sites' : 'Bookmarks'}</Text>
+                    <Text style={[styles.homeTabText, on && styles.homeTabTextOn]} numberOfLines={1}>{label}</Text>
                   </Pressable>
                 );
               })}
             </View>
-            {home === 'sites' ? START.map(group => (
+            {home === 'settings' ? (
+              <View style={styles.startGroup}>
+                <View style={styles.settingCard}>
+                  <View style={styles.startCopy}>
+                    <Text style={styles.settingTitle}>Desktop site</Text>
+                    <Text style={styles.settingLine}>Open pages with a desktop browser layout.</Text>
+                  </View>
+                  <Pressable
+                    style={[styles.settingToggle, desktop && styles.settingToggleOn]}
+                    onPress={toggleDesktop}
+                    accessibilityLabel="Desktop site">
+                    <Text style={[styles.settingToggleText, desktop && styles.settingToggleTextOn]}>{desktop ? 'On' : 'Off'}</Text>
+                  </Pressable>
+                </View>
+                <Pressable style={styles.settingCard} onPress={askClearCache}>
+                  <View style={styles.startCopy}>
+                    <Text style={styles.settingTitle}>Clear cache</Text>
+                    <Text style={styles.settingLine}>Removes saved page files and form data so sites load fresh.</Text>
+                  </View>
+                </Pressable>
+                <Pressable style={styles.settingCard} onPress={askClearHistory}>
+                  <View style={styles.startCopy}>
+                    <Text style={styles.settingTitle}>Clear history</Text>
+                    <Text style={styles.settingLine}>Removes the list of pages you opened in this browser.</Text>
+                  </View>
+                </Pressable>
+                {settingNote ? <Text style={styles.settingNote}>{settingNote}</Text> : null}
+              </View>
+            ) : home === 'sites' ? START.map(group => (
               <View key={group.title} style={styles.startGroup}>
                 <Text style={styles.startKicker}>{group.title}</Text>
                 {group.sites.map(site => (
@@ -613,22 +750,27 @@ export default function BrowserScreen() {
             )) : (
               <Text style={styles.emptyLine}>No bookmarks yet. Open a page and tap the star.</Text>
             )}
-            <Text style={styles.startKicker}>History</Text>
-            {history.length ? history.map(item => (
-              <Pressable key={item.url} style={styles.historyRow} onPress={() => chooseSuggestion(item.url)}>
-                <Text style={styles.historyTitle} numberOfLines={1}>{item.title || siteLabel(item.url)}</Text>
-                <Text style={styles.historyHost} numberOfLines={1}>{siteLabel(item.url)}</Text>
-              </Pressable>
-            )) : (
-              <Text style={styles.emptyLine}>Pages you open will show up here.</Text>
+            {home === 'settings' ? null : (
+              <>
+                <Text style={styles.startKicker}>History</Text>
+                {history.length ? history.map(item => (
+                  <Pressable key={item.url} style={styles.historyRow} onPress={() => chooseSuggestion(item.url)}>
+                    <Text style={styles.historyTitle} numberOfLines={1}>{item.title || siteLabel(item.url)}</Text>
+                    <Text style={styles.historyHost} numberOfLines={1}>{siteLabel(item.url)}</Text>
+                  </Pressable>
+                )) : (
+                  <Text style={styles.emptyLine}>Pages you open will show up here.</Text>
+                )}
+              </>
             )}
           </ScrollView>
         ) : !ready || !webSource ? <View style={styles.web} /> : (
           <WebView<{}>
-            key={active.id}
+            key={`${active.id}-${desktop ? 'desktop' : 'mobile'}`}
             ref={webRef}
             source={{uri: webSource}}
             style={styles.web}
+            userAgent={desktop ? DESKTOP_AGENT : undefined}
             injectedJavaScriptBeforeContentLoaded={steem_keychain}
             injectedJavaScript={PAGE_SCRIPT}
             onMessage={onMessage}
@@ -692,6 +834,20 @@ export default function BrowserScreen() {
           </ScrollView>
         ) : null}
       </View>
+      {wiping ? (
+        <View style={styles.cacheClip} pointerEvents="none">
+          <WebView<{}>
+            ref={cacheRef}
+            source={{html: '<!DOCTYPE html><html><body></body></html>'}}
+            style={styles.cacheWeb}
+            onLoadEnd={() => {
+              cacheRef.current?.clearCache(true);
+              cacheRef.current?.clearFormData?.();
+              setWiping(false);
+            }}
+          />
+        </View>
+      ) : null}
       {pending ? (
         <RequestSheet
           request={pending.request}
@@ -914,8 +1070,29 @@ function makeStyles(c: Palette) {
   },
   homeTab: {flex: 1, borderRadius: 12, paddingVertical: 11, alignItems: 'center'},
   homeTabOn: {backgroundColor: c.accentSoft},
-  homeTabText: {color: c.muted, fontSize: 14, fontWeight: '700'},
+  homeTabText: {color: c.muted, fontSize: 13, fontWeight: '700'},
   homeTabTextOn: {color: c.accentDeep},
+  settingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: c.card,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.line,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginTop: 10,
+  },
+  settingTitle: {color: c.text, fontSize: 16, fontWeight: '800'},
+  settingLine: {color: c.muted, fontSize: 13, lineHeight: 18, marginTop: 3},
+  settingToggle: {borderRadius: 12, borderWidth: 1, borderColor: c.line, paddingHorizontal: 12, paddingVertical: 8},
+  settingToggleOn: {backgroundColor: c.accent, borderColor: c.accent},
+  settingToggleText: {color: c.muted, fontSize: 13, fontWeight: '800'},
+  settingToggleTextOn: {color: c.onAccent},
+  settingNote: {color: c.accentDeep, fontSize: 13, fontWeight: '700', marginTop: 12, marginLeft: 4},
+  cacheClip: {position: 'absolute', width: 0, height: 0, overflow: 'hidden'},
+  cacheWeb: {width: 1, height: 1},
   emptyLine: {color: c.muted, fontSize: 13, lineHeight: 18, marginTop: 4, marginBottom: 8, marginLeft: 4},
   remove: {color: c.muted, fontSize: 22, fontWeight: '500', paddingHorizontal: 4},
   historyRow: {

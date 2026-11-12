@@ -4,6 +4,7 @@ const FAVORITES_KEY = 'steem.browser.favorites';
 const HISTORY_KEY = 'steem.browser.history';
 const ALLOWED_KEY = 'steem.browser.allowed';
 const SESSION_KEY = 'steem.browser.session';
+const DESKTOP_KEY = 'steem.browser.desktop';
 
 export type BrowserLink = {
   url: string;
@@ -66,6 +67,14 @@ export async function loadSession(): Promise<BrowserSession | null> {
   } catch {
     return null;
   }
+}
+
+export async function loadDesktopSite() {
+  return (await AsyncStorage.getItem(DESKTOP_KEY)) === '1';
+}
+
+export function saveDesktopSite(on: boolean) {
+  return AsyncStorage.setItem(DESKTOP_KEY, on ? '1' : '0');
 }
 
 export function saveSession(session: BrowserSession) {

@@ -302,7 +302,7 @@ function CaretMark({open, color}: {open: boolean; color: string}) {
 function HistoryMark() {
   const colors = useColors();
   return (
-    <Svg width={30} height={30} viewBox="0 0 24 24" fill="none">
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
       <Path d="M12 7v5l3 2" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       <Path d="M12 21a9 9 0 1 0-7.5-4" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
       <Path d="M4 16v4h4" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -489,11 +489,11 @@ function makeStyles(c: Palette) {
   claimText: {color: c.muted, fontSize: 12},
   claimAction: {color: c.accent, fontSize: 13, fontWeight: '800'},
   error: {color: c.danger, marginBottom: 8, fontSize: 12},
-  historyCard: {flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: c.card, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 16, marginTop: 6},
-  historyIcon: {width: 56, height: 56, borderRadius: 18, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center'},
+  historyCard: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.card, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6},
+  historyIcon: {width: 40, height: 40, borderRadius: 12, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center'},
   historyCopy: {flex: 1},
-  historyHint: {color: c.muted, fontSize: 14, fontWeight: '600', marginTop: 3},
-  shortcutTitle: {color: c.text, fontSize: 22, fontWeight: '800'},
+  historyHint: {color: c.muted, fontSize: 12, fontWeight: '600', marginTop: 1},
+  shortcutTitle: {color: c.text, fontSize: 16, fontWeight: '800'},
   chevron: {color: c.muted, fontSize: 18, lineHeight: 18},
   disabled: {opacity: 0.4},
 });

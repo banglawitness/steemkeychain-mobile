@@ -112,6 +112,10 @@ export function parseKeychainExport(raw: string, password: string): StoredAccoun
   return requireAccounts(asAccounts(parsed));
 }
 
+export function encryptKeychainExport(accounts: StoredAccount[], password: string): string {
+  return CryptoJS.AES.encrypt(JSON.stringify(accounts), password).toString();
+}
+
 function requireAccounts(accounts: StoredAccount[]): StoredAccount[] {
   if (accounts.length === 0) {
     throw new Error('No Steem accounts were found in that export.');

@@ -100,7 +100,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Wallet" component={WalletScreen} options={{headerShown: false}} />
         <Stack.Screen name="Browser" component={BrowserScreen} options={{headerShown: false}} />
         <Stack.Screen name="Import" component={ImportScreen} options={{title: 'Import accounts'}} />
-        <Stack.Screen name="Export" component={ExportScreen} options={{title: 'Export accounts'}} />
+        <Stack.Screen name="Export" component={ExportScreen} options={{title: 'Export'}} />
         <Stack.Screen name="Scan" component={ScanScreen} options={{title: 'Scan QR code'}} />
         <Stack.Screen name="AddKey" component={AddAccountScreen} options={{title: 'Add account'}} />
         <Stack.Screen

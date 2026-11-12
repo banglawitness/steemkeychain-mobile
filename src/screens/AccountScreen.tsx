@@ -1,11 +1,14 @@
 import {useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {useVault} from '../auth/VaultContext';
 import {failureMessage} from '../browser/requests';
 import ConfirmSheet from '../components/ConfirmSheet';
+import PinPad from '../components/PinPad';
 import {RootStackParamList} from '../navigation/RootNavigator';
+import {biometricEnabled} from '../storage/vault';
 import {Palette, useThemedStyles} from '../theme';
 
 const ROLES = ['posting', 'active', 'memo'] as const;
@@ -13,13 +16,63 @@ const ROLES = ['posting', 'active', 'memo'] as const;
 export default function AccountScreen() {
   const styles = useThemedStyles(makeStyles);
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
-  const {accounts, activeName, removeKey, forgetAccount} = useVault();
+  const {accounts, activeName, removeKey, forgetAccount, unlockWithPin, unlockWithBiometric} = useVault();
   const account = accounts.find(item => item.name === activeName);
   const [forgetKeys, setForgetKeys] = useState(false);
   const [forgetCopy, setForgetCopy] = useState(false);
   const [role, setRole] = useState<(typeof ROLES)[number] | null>(null);
+  const [reveal, setReveal] = useState<(typeof ROLES)[number] | null>(null);
+  const [shown, setShown] = useState<(typeof ROLES)[number] | null>(null);
+  const [authPin, setAuthPin] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [fingerprintOn, setFingerprintOn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    biometricEnabled().then(setFingerprintOn).catch(() => setFingerprintOn(false));
+  }, []);
+
+  useEffect(() => {
+    if (!reveal || !fingerprintOn) return;
+    let cancel = false;
+    unlockWithBiometric()
+      .then(() => {
+        if (cancel) return;
+        setShown(reveal);
+        setCopied(false);
+        setReveal(null);
+        setAuthPin('');
+        setAuthError('');
+      })
+      .catch(() => undefined);
+    return () => {
+      cancel = true;
+    };
+  }, [reveal, fingerprintOn, unlockWithBiometric]);
+
+  useEffect(() => {
+    if (!reveal || authPin.length < 4) return;
+    let cancel = false;
+    unlockWithPin(authPin)
+      .then(() => {
+        if (cancel) return;
+        setShown(reveal);
+        setCopied(false);
+        setReveal(null);
+        setAuthPin('');
+        setAuthError('');
+      })
+      .catch(cause => {
+        if (cancel) return;
+        setAuthError(cause instanceof Error ? cause.message : 'Wrong PIN.');
+        setAuthPin('');
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [authPin, reveal, unlockWithPin]);
 
   if (!account) {
     return (
@@ -63,9 +116,23 @@ export default function AccountScreen() {
         <View key={item} style={styles.row}>
           <Text style={styles.keyLabel}>{label(item)} · {account.keys[item] ? 'saved' : 'missing'}</Text>
           {account.keys[item] ? (
-            <Pressable onPress={() => { setError(''); setRole(item); }}>
-              <Text style={styles.danger}>Remove</Text>
-            </Pressable>
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.showButton}
+                onPress={() => {
+                  setError('');
+                  setAuthError('');
+                  setAuthPin('');
+                  setReveal(item);
+                }}>
+                <Text style={styles.showText}>Show</Text>
+              </Pressable>
+              <Pressable
+                style={styles.removeButton}
+                onPress={() => { setError(''); setRole(item); }}>
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable>
+            </View>
           ) : null}
         </View>
       ))}
@@ -93,6 +160,40 @@ export default function AccountScreen() {
           onConfirm={dropKey}
         />
       ) : null}
+      {shown && account.keys[shown] ? (
+        <View style={styles.authCover}>
+          <View style={styles.authCard}>
+            <Text style={styles.authTitle}>{label(shown)}</Text>
+            <Text style={styles.secret} selectable>{account.keys[shown]}</Text>
+            <Pressable
+              style={styles.primary}
+              onPress={async () => {
+                const secret = account.keys[shown];
+                if (!secret) return;
+                await Clipboard.setStringAsync(secret);
+                setCopied(true);
+              }}>
+              <Text style={styles.primaryText}>{copied ? 'Copied' : 'Copy key'}</Text>
+            </Pressable>
+            <Pressable style={styles.cancel} onPress={() => { setShown(null); setCopied(false); }}>
+              <Text style={styles.cancelText}>Hide</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+      {reveal ? (
+        <View style={styles.authCover}>
+          <View style={styles.authCard}>
+            <Text style={styles.authTitle}>Confirm to show this key</Text>
+            <Text style={styles.authHint}>Enter your PIN{fingerprintOn ? '. Fingerprint opens if it is turned on.' : '.'}</Text>
+            <PinPad value={authPin} onChange={setAuthPin} />
+            {authError ? <Text style={styles.error}>{authError}</Text> : null}
+            <Pressable style={styles.cancel} onPress={() => { setReveal(null); setAuthPin(''); setAuthError(''); }}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -117,10 +218,21 @@ function makeStyles(c: Palette) {
   return StyleSheet.create({
   screen: {flex: 1, backgroundColor: c.background, padding: 14},
   name: {color: c.text, fontSize: 22, fontWeight: '700', marginBottom: 10},
-  row: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6},
-  keyLabel: {color: c.text, flex: 1, fontSize: 16},
+  row: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6, gap: 8},
+  keyLabel: {color: c.text, flex: 1, fontSize: 15},
+  actions: {flexDirection: 'row', gap: 6},
+  showButton: {backgroundColor: c.accentSoft, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7},
+  showText: {color: c.accentDeep, fontWeight: '800', fontSize: 13},
+  removeButton: {backgroundColor: c.dangerSoft, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7},
+  removeText: {color: c.danger, fontWeight: '800', fontSize: 13},
   note: {color: c.muted, flex: 1, lineHeight: 20},
-  danger: {color: c.danger, fontWeight: '700', marginLeft: 12},
+  authCover: {...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,8,14,0.72)', justifyContent: 'center', padding: 16, zIndex: 20},
+  authCard: {backgroundColor: c.card, borderRadius: 16, padding: 16},
+  authTitle: {color: c.text, fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 8},
+  authHint: {color: c.muted, textAlign: 'center', lineHeight: 20, marginBottom: 8},
+  secret: {color: c.text, fontSize: 13, lineHeight: 20, marginBottom: 12},
+  cancel: {alignItems: 'center', paddingVertical: 12},
+  cancelText: {color: c.muted, fontWeight: '700'},
   primary: {backgroundColor: c.accent, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginTop: 6},
   primaryText: {color: c.onAccent, fontWeight: '700', fontSize: 16},
   section: {color: c.muted, fontSize: 12, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 28, marginBottom: 10},
