@@ -1,5 +1,5 @@
 import steem from 'steem';
-import {Balances, DelegationRow, HistoryRow, SavingsWithdraw} from '../types';
+import {Balances, ConvertRequest, DelegationRow, HistoryRow, SavingsWithdraw} from '../types';
 import {applySavedRpc} from './rpc';
 
 type GlobalProps = {
@@ -40,6 +40,7 @@ type ChainAccount = {
   vesting_withdraw_rate?: string;
   voting_power?: number;
   voting_manabar?: {current_mana: string | number; last_update_time: number};
+  downvote_manabar?: {current_mana: string | number; last_update_time: number};
 };
 
 const MANA_REGEN_SECONDS = 432000;
@@ -88,6 +89,15 @@ function votingPower(account: ChainAccount) {
 function votingMana(account: ChainAccount) {
   if (!account.voting_manabar && typeof account.voting_power !== 'number') return '';
   return (votingPower(account) / 100).toFixed(2);
+}
+
+function downvoteMana(account: ChainAccount) {
+  if (!account.downvote_manabar) return '';
+  // downvote max mana = 25% of upvote max mana
+  const maxMana = effectiveVests(account) * 1e6 * 0.25;
+  if (!maxMana) return '';
+  const percent = manaPercent(Number(account.downvote_manabar.current_mana), maxMana, account.downvote_manabar.last_update_time);
+  return percent.toFixed(2);
 }
 
 function voteWorth(account: ChainAccount, props: GlobalProps, fund: RewardFund, price: MedianPrice) {
@@ -189,6 +199,7 @@ export async function loadBalances(username: string): Promise<Balances> {
     poweringDown,
     nextPowerDown: remainingRaw > 0 ? account.next_vesting_withdrawal : '',
     votingMana: votingMana(account),
+    downvoteMana: downvoteMana(account),
     voteValue: fund && price ? voteWorth(account, props, fund, price) : '',
     rc: rc.percent,
     rcAmount: rc.amount,
@@ -242,6 +253,15 @@ export async function loadSavingsWithdrawals(username: string): Promise<SavingsW
     to: row.to,
     amount: row.amount,
     complete: row.complete,
+  }));
+}
+
+export async function loadConversions(username: string): Promise<ConvertRequest[]> {
+  const rows = await steemCall<{owner: string; requestid: number; amount: string; conversion_date: string}[]>('getConversionRequests', [username]);
+  return (rows || []).map(row => ({
+    requestId: row.requestid,
+    amount: row.amount,
+    complete: row.conversion_date,
   }));
 }
 

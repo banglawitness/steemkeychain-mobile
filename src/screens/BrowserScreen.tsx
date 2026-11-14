@@ -2,6 +2,7 @@ import {RouteProp, useFocusEffect, useNavigation, useRoute} from '@react-navigat
 import {StackNavigationProp} from '@react-navigation/stack';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   BackHandler,
@@ -69,6 +70,7 @@ const START = [
 const EXPLORE = START.flatMap(group => group.sites);
 
 const ADDRESS_BAR = 48;
+const ADDRESS_FOCUS = 56;
 const DESKTOP_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 let nextTabId = 1;
 
@@ -82,6 +84,9 @@ export default function BrowserScreen() {
   const chromeHidden = useRef(false);
   const barLock = useRef(false);
   const barHeight = useRef(new Animated.Value(ADDRESS_BAR)).current;
+  const addressSize = useRef(new Animated.Value(40)).current;
+  const chromeTools = useRef(new Animated.Value(1)).current;
+  const editingRef = useRef(false);
   const [barHidden, setBarHidden] = useState(false);
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -94,7 +99,14 @@ export default function BrowserScreen() {
   const finishing = useRef(false);
   const settledUrl = useRef('');
   const startedAt = useRef(0);
-  const webRef = useRef<WebView<{}>>(null);
+  const webRefs = useRef<Record<number, WebView<{}> | null>>({});
+  const sourcesRef = useRef<Record<number, string>>({});
+  const loadedTabs = useRef<Record<number, boolean>>({});
+  const pull = useRef(new Animated.Value(0)).current;
+  const pullDistance = useRef(0);
+  const pullHold = useRef(false);
+  const [pullVisible, setPullVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const cacheRef = useRef<WebView<{}>>(null);
   const trails = useRef<Record<number, string[]>>({});
   const addressRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -102,7 +114,8 @@ export default function BrowserScreen() {
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([{id: nextTabId++, url: '', title: 'New tab'}]);
   const [activeId, setActiveId] = useState(tabs[0].id);
-  const [webSource, setWebSource] = useState('');
+  const [sources, setSources] = useState<Record<number, string>>({});
+  const [stageHeight, setStageHeight] = useState(0);
   const [address, setAddress] = useState('');
   const [editingAddress, setEditingAddress] = useState(false);
   const [switcher, setSwitcher] = useState(false);
@@ -123,6 +136,7 @@ export default function BrowserScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const active = tabs.find(tab => tab.id === activeId) || tabs[0];
+  const activeWeb = () => webRefs.current[active.id] || null;
 
   useEffect(() => {
     Promise.all([loadHistory(), loadFavorites(), loadAllowed(), loadSession(), loadDesktopSite()]).then(([hist, saved, allow, session, desktopOn]) => {
@@ -133,10 +147,15 @@ export default function BrowserScreen() {
       if (session?.tabs.length) {
         const restored = session.tabs.map(tab => ({id: nextTabId++, url: tab.url, title: tab.title || 'New tab'}));
         const index = Math.min(Math.max(session.active, 0), restored.length - 1);
+        const initial: Record<number, string> = {};
+        restored.forEach(tab => {
+          if (tab.url) initial[tab.id] = tab.url;
+        });
+        sourcesRef.current = initial;
+        setSources(initial);
         setTabs(restored);
         setActiveId(restored[index].id);
         setAddress(restored[index].url);
-        setWebSource(restored[index].url);
       }
       setReady(true);
     });
@@ -197,6 +216,12 @@ export default function BrowserScreen() {
       setProgress(0);
       progressRef.current = 0;
       finishing.current = false;
+      if (!pullHold.current) return;
+      pullHold.current = false;
+      Animated.timing(pull, {toValue: 0, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false}).start(() => {
+        setRefreshing(false);
+        setPullVisible(false);
+      });
     }, 180);
   };
 
@@ -220,7 +245,7 @@ export default function BrowserScreen() {
     barLock.current = true;
     if (!hide) setBarHidden(false);
     Animated.timing(barHeight, {
-      toValue: hide ? 0 : ADDRESS_BAR,
+      toValue: hide ? 0 : editingRef.current ? ADDRESS_FOCUS : ADDRESS_BAR,
       duration: 160,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
@@ -234,11 +259,16 @@ export default function BrowserScreen() {
   };
 
   const showUrl = (url: string) => {
-    updateTab(active.id, {url, title: url});
+    const id = active.id;
+    updateTab(id, {url, title: url});
     setAddress(url);
     settledUrl.current = '';
-    if (url === webSource) webRef.current?.reload();
-    else setWebSource(url);
+    loadedTabs.current[id] = false;
+    if (sourcesRef.current[id] === url) webRefs.current[id]?.reload();
+    else {
+      sourcesRef.current = {...sourcesRef.current, [id]: url};
+      setSources({...sourcesRef.current});
+    }
     beginLoad();
   };
 
@@ -263,15 +293,43 @@ export default function BrowserScreen() {
   };
 
   const chooseSuggestion = (url: string) => {
+    if (blurTimer.current) clearTimeout(blurTimer.current);
+    editingRef.current = false;
     Keyboard.dismiss();
     addressRef.current?.blur();
     setEditingAddress(false);
+    growAddress(false);
     openUrl(url);
   };
 
+  const growAddress = (open: boolean) => {
+    Animated.parallel([
+      Animated.timing(barHeight, {toValue: open ? ADDRESS_FOCUS : ADDRESS_BAR, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false}),
+      Animated.timing(addressSize, {toValue: open ? 46 : 40, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false}),
+      Animated.timing(chromeTools, {toValue: open ? 0 : 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false}),
+    ]).start();
+  };
+
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (!editingRef.current) return;
+      editingRef.current = false;
+      setEditingAddress(false);
+      growAddress(false);
+      addressRef.current?.blur();
+    });
+    return () => sub.remove();
+  }, [addressSize, barHeight, chromeTools]);
+
   const focusAddress = () => {
     const next = withScheme(address);
+    editingRef.current = true;
     setEditingAddress(true);
+    if (chromeHidden.current) {
+      chromeHidden.current = false;
+      setBarHidden(false);
+    }
+    growAddress(true);
     if (next !== address) setAddress(next);
     setTimeout(() => {
       addressRef.current?.setNativeProps({selection: {start: next.length, end: next.length}});
@@ -291,7 +349,9 @@ export default function BrowserScreen() {
     const next = destination(address);
     if (!next) return;
     openUrl(address);
+    editingRef.current = false;
     setEditingAddress(false);
+    growAddress(false);
     Keyboard.dismiss();
     addressRef.current?.setNativeProps({text: siteLabel(next)});
   };
@@ -325,8 +385,8 @@ export default function BrowserScreen() {
   };
 
   const clearCache = () => {
-    webRef.current?.clearCache(true);
-    webRef.current?.clearFormData?.();
+    activeWeb()?.clearCache(true);
+    activeWeb()?.clearFormData?.();
     setSettingNote('Cache cleared.');
     setWiping(true);
   };
@@ -370,7 +430,7 @@ export default function BrowserScreen() {
 
   const respond = (payload: Record<string, unknown>) => {
     const script = `window.steem_keychain.onAnswerReceived("steem_keychain_response", ${JSON.stringify(payload)}); true;`;
-    webRef.current?.injectJavaScript(script);
+    activeWeb()?.injectJavaScript(script);
   };
 
   const reject = (request: KeychainRequest, requestId: number, message: string) => {
@@ -440,7 +500,33 @@ export default function BrowserScreen() {
       return;
     }
     if (message.name === 'swHandshake_steem') {
-      webRef.current?.injectJavaScript('window.steem_keychain.onAnswerReceived("steem_keychain_handshake"); true;');
+      webRefs.current[active.id]?.injectJavaScript('window.steem_keychain.onAnswerReceived("steem_keychain_handshake"); true;');
+      return;
+    }
+    if (message.name === 'pullMove') {
+      if (pullHold.current || !active.url) return;
+      const distance = Math.max(0, Math.min(240, Number((message.data as {distance?: number} | undefined)?.distance) || 0));
+      pullDistance.current = distance;
+      pull.setValue(distance);
+      setPullVisible(distance > 24);
+      return;
+    }
+    if (message.name === 'pullEnd') {
+      if (pullHold.current || !active.url) return;
+      const distance = Math.max(pullDistance.current, Number((message.data as {distance?: number} | undefined)?.distance) || 0);
+      pullDistance.current = 0;
+      if (distance >= 200) {
+        pullHold.current = true;
+        setPullVisible(true);
+        setRefreshing(true);
+        Animated.timing(pull, {toValue: 200, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: false}).start();
+        loadedTabs.current[active.id] = false;
+        settledUrl.current = '';
+        beginLoad();
+        webRefs.current[active.id]?.reload();
+        return;
+      }
+      Animated.timing(pull, {toValue: 0, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false}).start(() => setPullVisible(false));
       return;
     }
     if (message.name === 'scroll') {
@@ -493,12 +579,6 @@ export default function BrowserScreen() {
     }
   };
 
-  const reloadPage = () => {
-    if (!active.url) return;
-    settledUrl.current = '';
-    beginLoad();
-    webRef.current?.reload();
-  };
   const typing = editingAddress && address.trim() !== (active.url || '').trim();
   const query = typing ? address.trim().toLowerCase() : '';
   const showSuggestions = !switcher && editingAddress && (Boolean(query) || Boolean(active.url));
@@ -517,7 +597,6 @@ export default function BrowserScreen() {
     const tab = {id: nextTabId++, url: '', title: 'New tab'};
     setTabs(current => [...current, tab]);
     setActiveId(tab.id);
-    setWebSource('');
     setAddress('');
     setSwitcher(false);
     setEditingAddress(false);
@@ -525,29 +604,39 @@ export default function BrowserScreen() {
   };
   const closeTab = (id: number) => {
     delete trails.current[id];
+    delete webRefs.current[id];
+    delete loadedTabs.current[id];
+    const nextSources = {...sourcesRef.current};
+    delete nextSources[id];
+    sourcesRef.current = nextSources;
+    setSources(nextSources);
     setTabs(current => {
       const next = current.filter(item => item.id !== id);
       if (!next.length) {
         const fresh = {id: nextTabId++, url: '', title: 'New tab'};
         setActiveId(fresh.id);
         setAddress('');
-        setWebSource('');
         return [fresh];
       }
       if (id === activeId) {
         setActiveId(next[0].id);
         setAddress(next[0].url);
-        setWebSource(next[0].url);
       }
       return next;
     });
   };
 
   const showHome = () => {
-    trails.current[active.id] = [];
-    updateTab(active.id, {url: '', title: 'New tab'});
+    const id = active.id;
+    trails.current[id] = [];
+    updateTab(id, {url: '', title: 'New tab'});
+    const nextSources = {...sourcesRef.current};
+    delete nextSources[id];
+    sourcesRef.current = nextSources;
+    setSources(nextSources);
+    delete webRefs.current[id];
+    delete loadedTabs.current[id];
     setAddress('');
-    setWebSource('');
     setCanGoBack(false);
     setCanGoForward(false);
     setEditingAddress(false);
@@ -572,7 +661,7 @@ export default function BrowserScreen() {
       return true;
     }
     if (canGoBack) {
-      webRef.current?.goBack();
+      activeWeb()?.goBack();
       return true;
     }
     const trail = trails.current[active.id] || [];
@@ -598,19 +687,27 @@ export default function BrowserScreen() {
     <SafeAreaView style={styles.screen} edges={['top']}>
       <Animated.View style={[styles.barClip, {height: barHeight}]}>
           <View style={styles.toolbar}>
-            {editingAddress ? null : <IconButton glyph="‹" disabled={!canGoBack && !active.url} onPress={backInBrowser} />}
-            {editingAddress ? null : <IconButton glyph="›" disabled={!canGoForward} onPress={() => webRef.current?.goForward()} />}
+            <Animated.View
+              pointerEvents={editingAddress ? 'none' : 'auto'}
+              style={{width: chromeTools.interpolate({inputRange: [0, 1], outputRange: [0, 44]}), opacity: chromeTools, overflow: 'hidden'}}>
+              <Pressable style={styles.barButton} onPress={showHome} accessibilityLabel="Home">
+                <HomeMark color={colors.text} />
+              </Pressable>
+            </Animated.View>
             <View style={styles.addressWrap}>
+              <Animated.View style={{height: addressSize}}>
               <TextInput
                 ref={addressRef}
-                style={[styles.address, editingAddress ? styles.addressGo : styles.addressIdle, !editingAddress && active.url.startsWith('http') && styles.addressStar]}
+                style={[styles.address, styles.addressFill, editingAddress ? styles.addressGo : styles.addressIdle, !editingAddress && active.url.startsWith('http') && styles.addressStar]}
                 value={editingAddress ? address : siteLabel(address)}
                 onChangeText={editAddress}
                 onFocus={focusAddress}
                 onBlur={() => {
                   if (blurTimer.current) clearTimeout(blurTimer.current);
                   blurTimer.current = setTimeout(() => {
+                    editingRef.current = false;
                     setEditingAddress(false);
+                    growAddress(false);
                     if (/^https?:\/\/$/i.test(address.trim())) {
                       setAddress(active.url);
                       addressRef.current?.setNativeProps({text: siteLabel(active.url)});
@@ -628,9 +725,10 @@ export default function BrowserScreen() {
                 placeholder="Search or enter a site"
                 placeholderTextColor={colors.muted}
               />
+              </Animated.View>
               {editingAddress ? (
-                <Pressable style={styles.go} onPressIn={submitAddress} hitSlop={8} accessibilityLabel="Open address">
-                  <Text style={[styles.goGlyph, !destination(address) && styles.dim]}>→</Text>
+                <Pressable style={[styles.go, !destination(address) && styles.goDisabled]} onPressIn={submitAddress} hitSlop={8} accessibilityLabel="Open address">
+                  <Text style={[styles.goGlyph, !destination(address) && styles.dim]}>Go</Text>
                 </Pressable>
               ) : null}
               {!editingAddress && active.url.startsWith('http') ? (
@@ -639,17 +737,16 @@ export default function BrowserScreen() {
                 </Pressable>
               ) : null}
             </View>
-            {editingAddress ? null : (
-              <>
+            <Animated.View
+              pointerEvents={editingAddress ? 'none' : 'auto'}
+              style={{width: chromeTools.interpolate({inputRange: [0, 1], outputRange: [0, 64]}), opacity: chromeTools, overflow: 'hidden', flexDirection: 'row', alignItems: 'center'}}>
                 <Pressable style={styles.addTab} onPressIn={openTab} hitSlop={6}>
                   <Text style={styles.addTabText}>+</Text>
                 </Pressable>
                 <Pressable style={styles.countButton} onPress={() => setSwitcher(value => !value)} hitSlop={6}>
                   <Text style={styles.countText}>{tabs.length}</Text>
                 </Pressable>
-                <IconButton glyph="↻" disabled={!active.url} onPress={reloadPage} />
-              </>
-            )}
+            </Animated.View>
           </View>
       </Animated.View>
       {barHidden && active.url && !switcher ? (
@@ -660,31 +757,12 @@ export default function BrowserScreen() {
           <View style={[styles.progressBar, {width: `${Math.max(6, Math.round(progress * 100))}%`}]} />
         </View>
       ) : null}
-      {showSuggestions && (exploreHits.length || historyHits.length) ? (
-        <ScrollView style={styles.suggest} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
-          {exploreHits.length ? <Text style={styles.suggestHead}>Explore</Text> : null}
-          {exploreHits.map(item => (
-            <Pressable
-              key={item.url}
-              style={styles.suggestRow}
-              onPress={() => chooseSuggestion(item.url)}>
-              <Text style={styles.suggestTitle} numberOfLines={1}>{item.title}</Text>
-              <Text style={styles.suggestUrl} numberOfLines={1}>{siteLabel(item.url)}</Text>
-            </Pressable>
-          ))}
-          {historyHits.length ? <Text style={styles.suggestHead}>History</Text> : null}
-          {historyHits.map(item => (
-            <Pressable
-              key={item.url}
-              style={styles.suggestRow}
-              onPress={() => chooseSuggestion(item.url)}>
-              <Text style={styles.suggestTitle} numberOfLines={1}>{item.title || siteLabel(item.url)}</Text>
-              <Text style={styles.suggestUrl} numberOfLines={1}>{siteLabel(item.url)}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-      <View style={styles.stage}>
+      <View
+        style={styles.stage}
+        onLayout={event => {
+          const next = Math.round(event.nativeEvent.layout.height);
+          if (next > 0) setStageHeight(current => (current === next ? current : next));
+        }}>
         {startPage ? (
           <ScrollView style={styles.web} contentContainerStyle={[styles.start, {paddingBottom: insets.bottom + 150}]} keyboardShouldPersistTaps="handled">
             <View style={styles.homeSwitch}>
@@ -789,49 +867,97 @@ export default function BrowserScreen() {
               </>
             )}
           </ScrollView>
-        ) : !ready || !webSource ? <View style={styles.web} /> : (
-          <WebView<{}>
-            key={`${active.id}-${desktop ? 'desktop' : 'mobile'}`}
-            ref={webRef}
-            source={{uri: webSource}}
-            style={styles.web}
-            userAgent={desktop ? DESKTOP_AGENT : undefined}
-            injectedJavaScriptBeforeContentLoaded={steem_keychain}
-            injectedJavaScript={PAGE_SCRIPT}
-            onMessage={onMessage}
-            onNavigationStateChange={onNavigation}
-            onLoadStart={event => {
-              const url = event.nativeEvent.url || '';
-              if (!url || url === 'about:blank' || url === settledUrl.current) return;
-              beginLoad();
-            }}
-            onLoadProgress={event => noteProgress(event.nativeEvent.progress)}
-            onLoadEnd={event => {
-              webRef.current?.injectJavaScript(PAGE_SCRIPT);
-              finishLoad(event.nativeEvent.url);
-            }}
-            onError={() => {
-              const query = searchFor.current.trim();
-              if (!query || active.url.includes('google.com/search?')) {
-                finishLoad();
-                return;
-              }
-              searchFor.current = '';
-              go(searchUrl(query));
-            }}
-            onShouldStartLoadWithRequest={event => {
-              const url = event.url || '';
-              return url.startsWith('http://') || url.startsWith('https://') || url === 'about:blank';
-            }}
-            onOpenWindow={event => {
-              const url = event.nativeEvent.targetUrl;
-              if (url && (url.startsWith('http://') || url.startsWith('https://'))) go(url);
-            }}
-            allowsBackForwardNavigationGestures
-            setSupportMultipleWindows={false}
-            originWhitelist={['http://*', 'https://*']}
-          />
-        )}
+        ) : <View style={styles.web} />}
+        <View
+          style={[
+            styles.pageLayer,
+            ready && !startPage && stageHeight > 0 && sources[active.id] ? {height: stageHeight} : styles.keptHost,
+          ]}
+          pointerEvents={startPage ? 'none' : 'auto'}
+          collapsable={false}>
+          {tabs.map(tab => {
+            const uri = sources[tab.id];
+            if (!uri || stageHeight <= 0) return null;
+            const shown = tab.id === active.id && !startPage;
+            const frame = {height: stageHeight, width: '100%' as const, backgroundColor: colors.background};
+            return (
+              <View key={`${tab.id}-${desktop ? 'desktop' : 'mobile'}`} style={shown ? frame : styles.keptHost} collapsable={false} pointerEvents={shown ? 'auto' : 'none'}>
+              <WebView
+                ref={node => { webRefs.current[tab.id] = node; }}
+                source={{uri}}
+                style={frame}
+                pointerEvents={shown ? 'auto' : 'none'}
+                userAgent={desktop ? DESKTOP_AGENT : undefined}
+                injectedJavaScriptBeforeContentLoaded={steem_keychain}
+                injectedJavaScript={PAGE_SCRIPT}
+                onMessage={event => {
+                  if (tab.id !== active.id) return;
+                  onMessage(event);
+                }}
+                onNavigationStateChange={state => {
+                  if (state.url && state.url !== 'about:blank') updateTab(tab.id, {url: state.url, title: state.title || tab.title});
+                  if (tab.id !== active.id) return;
+                  onNavigation(state);
+                }}
+                onLoadStart={event => {
+                  if (tab.id !== active.id || loadedTabs.current[tab.id]) return;
+                  const url = event.nativeEvent.url || '';
+                  if (!url || url === 'about:blank' || url === settledUrl.current) return;
+                  beginLoad();
+                }}
+                onLoadProgress={event => {
+                  if (tab.id === active.id && !loadedTabs.current[tab.id]) noteProgress(event.nativeEvent.progress);
+                }}
+                onLoadEnd={event => {
+                  loadedTabs.current[tab.id] = true;
+                  webRefs.current[tab.id]?.injectJavaScript(PAGE_SCRIPT);
+                  if (tab.id === active.id) finishLoad(event.nativeEvent.url);
+                }}
+                onError={() => {
+                  if (tab.id !== active.id) return;
+                  const query = searchFor.current.trim();
+                  if (!query || active.url.includes('google.com/search?')) {
+                    finishLoad();
+                    return;
+                  }
+                  searchFor.current = '';
+                  go(searchUrl(query));
+                }}
+                onShouldStartLoadWithRequest={event => {
+                  const url = event.url || '';
+                  return url.startsWith('http://') || url.startsWith('https://') || url === 'about:blank';
+                }}
+                onOpenWindow={event => {
+                  const url = event.nativeEvent.targetUrl;
+                  if (url && (url.startsWith('http://') || url.startsWith('https://'))) go(url);
+                }}
+                allowsBackForwardNavigationGestures
+                setSupportMultipleWindows={false}
+                originWhitelist={['http://*', 'https://*']}
+              />
+              </View>
+            );
+          })}
+        </View>
+        {pullVisible || refreshing ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.pullWrap,
+              {
+                opacity: pull.interpolate({inputRange: [0, 12, 40], outputRange: [0, 0.55, 1], extrapolate: 'clamp'}),
+                top: pull.interpolate({inputRange: [0, 200, 240], outputRange: [0, 28, 36], extrapolate: 'clamp'}),
+              },
+            ]}>
+            <View style={styles.pullBadge}>
+              {refreshing ? <ActivityIndicator color={colors.accent} /> : (
+                <Animated.View style={{transform: [{rotate: pull.interpolate({inputRange: [0, 200], outputRange: ['0deg', '180deg'], extrapolate: 'clamp'})}]}}>
+                  <PullMark color={colors.accent} />
+                </Animated.View>
+              )}
+            </View>
+          </Animated.View>
+        ) : null}
         {switcher ? (
           <ScrollView style={styles.switcher} contentContainerStyle={styles.homeContent}>
             <Text style={styles.heading}>{tabs.length} {tabs.length === 1 ? 'tab' : 'tabs'}</Text>
@@ -843,7 +969,6 @@ export default function BrowserScreen() {
                 if (tab.id !== active.id) {
                   setActiveId(tab.id);
                   setAddress(tab.url);
-                  setWebSource(tab.url);
                 }
                   setSwitcher(false);
                 }}>
@@ -854,6 +979,30 @@ export default function BrowserScreen() {
                 <Pressable hitSlop={8} onPress={() => closeTab(tab.id)}>
                   <Text style={styles.close}>×</Text>
                 </Pressable>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
+        {showSuggestions && (exploreHits.length || historyHits.length) ? (
+          <ScrollView style={styles.suggest} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
+            {exploreHits.length ? <Text style={styles.suggestHead}>Explore</Text> : null}
+            {exploreHits.map(item => (
+              <Pressable
+                key={item.url}
+                style={styles.suggestRow}
+                onPress={() => chooseSuggestion(item.url)}>
+                <Text style={styles.suggestTitle} numberOfLines={1}>{item.title}</Text>
+                <Text style={styles.suggestUrl} numberOfLines={1}>{siteLabel(item.url)}</Text>
+              </Pressable>
+            ))}
+            {historyHits.length ? <Text style={styles.suggestHead}>History</Text> : null}
+            {historyHits.map(item => (
+              <Pressable
+                key={item.url}
+                style={styles.suggestRow}
+                onPress={() => chooseSuggestion(item.url)}>
+                <Text style={styles.suggestTitle} numberOfLines={1}>{item.title || siteLabel(item.url)}</Text>
+                <Text style={styles.suggestUrl} numberOfLines={1}>{siteLabel(item.url)}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -893,7 +1042,7 @@ export default function BrowserScreen() {
           <BottomBar current="Browser" />
         </View>
       ) : null}
-      <View style={[styles.dock, {bottom: insets.bottom + (barOpen ? 126 : 64)}]} pointerEvents="box-none">
+      <View style={[styles.dock, {bottom: insets.bottom + (barOpen ? 122 : 64)}]} pointerEvents="box-none">
         <Pressable style={[styles.dockHandle, styles.dockHandleAlone]} onPress={() => setBarOpen(value => !value)}>
           <Text style={styles.dockGlyph}>{barOpen ? '›' : '‹'}</Text>
         </Pressable>
@@ -922,6 +1071,24 @@ function IconButton({glyph, disabled, onPress}: {glyph: string; disabled?: boole
     <Pressable style={[styles.barButton, disabled && styles.dim]} disabled={disabled} onPress={onPress}>
       <Text style={styles.barGlyph}>{glyph}</Text>
     </Pressable>
+  );
+}
+
+function PullMark({color}: {color: string}) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24">
+      <Path d="M12 6v8" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      <Path d="M8.5 11.5 12 15l3.5-3.5" stroke={color} strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 16.5a6 6 0 1 0 1.6-5.2" stroke={color} strokeWidth={2.2} fill="none" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function HomeMark({color}: {color: string}) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24">
+      <Path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5z" fill={color} />
+    </Svg>
   );
 }
 
@@ -1023,12 +1190,43 @@ const PAGE_SCRIPT = `
   window.__steemScrollWatch = true;
   var lastY = 0;
   var lastDir = '';
+  var pullStartX = 0;
+  var pullStartY = 0;
+  var pullReady = false;
+  var pullSent = -1;
+  function pageAtTop() {
+    var top = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    return top <= 1;
+  }
+  function reportPull(distance) {
+    var next = Math.max(0, Math.min(240, Math.round(distance)));
+    if (next === pullSent) return;
+    pullSent = next;
+    send({name:'pullMove', data:{distance:next}});
+  }
+  function endPull() {
+    if (pullSent < 0) return;
+    send({name:'pullEnd', data:{distance:Math.max(0, pullSent)}});
+    pullSent = -1;
+    pullReady = false;
+  }
   document.addEventListener('touchstart', function (event) {
-    if (event.touches && event.touches[0]) lastY = event.touches[0].clientY;
+    if (!event.touches || !event.touches[0]) return;
+    lastY = event.touches[0].clientY;
+    pullStartX = event.touches[0].clientX;
+    pullStartY = lastY;
+    pullReady = pageAtTop();
+    pullSent = -1;
   }, {passive:true, capture:true});
   document.addEventListener('touchmove', function (event) {
     if (!event.touches || !event.touches[0]) return;
     var y = event.touches[0].clientY;
+    if (pullReady) {
+      var drag = y - pullStartY;
+      var sideways = Math.abs(event.touches[0].clientX - pullStartX);
+      if (!pageAtTop() || (sideways > 36 && sideways > drag)) endPull();
+      else if (drag > 0) reportPull(drag);
+    }
     var delta = lastY - y;
     if (Math.abs(delta) < 28) return;
     var dir = delta > 0 ? 'down' : 'up';
@@ -1040,6 +1238,8 @@ const PAGE_SCRIPT = `
     lastDir = dir;
     send({name:'scroll', data:{direction:dir}});
   }, {passive:true, capture:true});
+  document.addEventListener('touchend', endPull, {passive:true, capture:true});
+  document.addEventListener('touchcancel', endPull, {passive:true, capture:true});
   return true;
 })();
 true;
@@ -1050,18 +1250,20 @@ function makeStyles(c: Palette) {
   screen: {flex: 1, backgroundColor: c.background},
   peek: {position: 'absolute', top: 0, left: 0, right: 0, height: 28, zIndex: 6},
   barClip: {overflow: 'hidden', backgroundColor: c.background},
-  toolbar: {height: ADDRESS_BAR, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, backgroundColor: c.background},
+  toolbar: {flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, backgroundColor: c.background},
   barButton: {width: 40, height: 40, borderRadius: 8, backgroundColor: c.card, alignItems: 'center', justifyContent: 'center', marginHorizontal: 2},
   barGlyph: {color: c.text, fontSize: 22, fontWeight: '700', lineHeight: 24},
   dim: {opacity: 0.3},
   addressWrap: {flex: 1, justifyContent: 'center'},
-  address: {height: 40, backgroundColor: c.card, color: c.text, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 0, fontSize: 15, textAlignVertical: 'center'},
+  address: {backgroundColor: c.card, color: c.text, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 0, fontSize: 15, textAlignVertical: 'center'},
+  addressFill: {height: '100%'},
   addressIdle: {textAlign: 'center', fontSize: 14, fontWeight: '600'},
   addressStar: {paddingRight: 36},
   addressGo: {paddingRight: 42, textAlign: 'left'},
   star: {position: 'absolute', right: 8, top: 0, bottom: 0, justifyContent: 'center'},
-  go: {position: 'absolute', right: 2, top: 0, bottom: 0, width: 36, alignItems: 'center', justifyContent: 'center'},
-  goGlyph: {color: c.accent, fontSize: 22, fontWeight: '800'},
+  go: {position: 'absolute', right: 2, top: 0, bottom: 0, width: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accent, borderRadius: 10, margin: 3},
+  goDisabled: {backgroundColor: c.card},
+  goGlyph: {color: c.onAccent, fontSize: 13, fontWeight: '800', letterSpacing: 0.3},
   addTab: {width: 32, height: 32, alignItems: 'center', justifyContent: 'center'},
   addTabText: {color: c.text, fontSize: 22, fontWeight: '500', lineHeight: 24},
   countButton: {width: 26, height: 26, borderRadius: 6, borderWidth: 1.5, borderColor: c.text, alignItems: 'center', justifyContent: 'center', marginRight: 2},
@@ -1075,7 +1277,7 @@ function makeStyles(c: Palette) {
   dockHandle: {width: 28, height: 48, borderTopLeftRadius: 12, borderBottomLeftRadius: 12, backgroundColor: c.card, alignItems: 'center', justifyContent: 'center'},
   dockHandleAlone: {alignSelf: 'flex-end'},
   dockGlyph: {color: c.text, fontSize: 18, fontWeight: '700'},
-  suggest: {maxHeight: 470, backgroundColor: c.card, marginHorizontal: 8, marginTop: 4, borderRadius: 8, overflow: 'hidden'},
+  suggest: {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.background, zIndex: 30, elevation: 30},
   suggestHead: {color: c.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.7, textTransform: 'uppercase', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4},
   suggestRow: {flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line},
   suggestTitle: {color: c.text, fontSize: 15, fontWeight: '700', flexShrink: 1},
@@ -1151,8 +1353,21 @@ function makeStyles(c: Palette) {
   startTitle: {color: c.text, fontSize: 22, fontWeight: '800'},
   startLine: {color: c.muted, fontSize: 14, lineHeight: 18, marginTop: 3},
   startHost: {color: c.accent, fontSize: 12, fontWeight: '700', marginTop: 6},
-  stage: {flex: 1},
+  stage: {flex: 1, overflow: 'hidden'},
   web: {flex: 1, backgroundColor: c.background},
+  pageLayer: {position: 'absolute', top: 0, left: 0, right: 0, overflow: 'hidden'},
+  pullWrap: {position: 'absolute', top: 0, left: 0, right: 0, alignItems: 'center', zIndex: 12, elevation: 12},
+  pullBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: c.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.line,
+  },
+  keptHost: {position: 'absolute', width: 0, height: 0, overflow: 'hidden'},
   switcher: {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: c.background},
   homeContent: {padding: 12, paddingBottom: 18},
   heading: {color: c.text, fontSize: 15, fontWeight: '700', marginTop: 6, marginBottom: 6},

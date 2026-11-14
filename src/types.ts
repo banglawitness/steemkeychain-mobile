@@ -25,6 +25,7 @@ export type Balances = {
   poweringDown: string;
   nextPowerDown: string;
   votingMana: string;
+  downvoteMana: string;
   voteValue: string;
   rc: string;
   rcAmount: string;
@@ -39,6 +40,12 @@ export type DelegationRow = {
 export type SavingsWithdraw = {
   requestId: number;
   to: string;
+  amount: string;
+  complete: string;
+};
+
+export type ConvertRequest = {
+  requestId: number;
   amount: string;
   complete: string;
 };

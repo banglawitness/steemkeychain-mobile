@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.steemkeychain.mobile",
-      "versionCode": 8,
+      "versionCode": 10,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"

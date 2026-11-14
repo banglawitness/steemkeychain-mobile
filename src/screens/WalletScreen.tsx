@@ -7,6 +7,7 @@ import {Pressable, RefreshControl, ScrollView, StyleSheet, Text, View} from 'rea
 import Svg, {Path} from 'react-native-svg';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useVault} from '../auth/VaultContext';
+import AccountAvatar from '../components/AccountAvatar';
 import AccountDrawer from '../components/AccountDrawer';
 import BottomBar from '../components/BottomBar';
 import SteemLogo, {SbdLogo, SpLogo} from '../components/SteemLogo';
@@ -35,6 +36,7 @@ export default function WalletScreen() {
   const [drawer, setDrawer] = useState(false);
   const [picker, setPicker] = useState(false);
   const [open, setOpen] = useState<OpenRow>(null);
+  const [vpMode, setVpMode] = useState<'up' | 'down'>('up');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hidden, setHidden] = useState(hideBalancesCache === true);
@@ -115,6 +117,7 @@ export default function WalletScreen() {
           </Pressable>
           <View style={styles.identity}>
             <View style={styles.nameRow}>
+              {activeName ? <AccountAvatar name={activeName} size={28} /> : null}
               <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{activeName || 'No account'}</Text>
               {accounts.length > 1 ? (
                 <Pressable style={styles.caret} onPress={() => setPicker(value => !value)} accessibilityLabel="Switch account">
@@ -123,13 +126,15 @@ export default function WalletScreen() {
               ) : null}
             </View>
           </View>
-          <Pressable style={styles.iconButton} onPress={() => navigation.navigate('Scan')} accessibilityLabel="Scan QR code">
-            <ScanMark />
-          </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => navigation.navigate('Activity')} accessibilityLabel="Notifications">
-            <ActivityMark />
-            {badge ? <Text style={styles.headerBadge}>{badge > 9 ? '9+' : badge}</Text> : null}
-          </Pressable>
+          <View style={styles.tools}>
+            <Pressable style={styles.toolButton} onPress={() => navigation.navigate('Scan')} accessibilityLabel="Scan QR code">
+              <ScanMark />
+            </Pressable>
+            <Pressable style={styles.toolButton} onPress={() => navigation.navigate('Activity')} accessibilityLabel="Notifications">
+              <ActivityMark />
+              {badge ? <Text style={styles.headerBadge}>{badge > 9 ? '9+' : badge}</Text> : null}
+            </Pressable>
+          </View>
       </View>
       <View style={styles.body}>
       <ScrollView
@@ -153,12 +158,28 @@ export default function WalletScreen() {
           </View>
           <Text style={styles.total} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.45}>{mask(total || '—')}</Text>
           <View style={styles.stats}>
-            <Stat
-              label="VP"
-              value={balances?.votingMana ? `${balances.votingMana}%` : '—'}
-              note="Vote value"
-              noteValue={mask(balances?.voteValue ? `$${balances.voteValue}` : '—')}
-            />
+            <Pressable style={styles.stat} onPress={() => setVpMode(m => m === 'up' ? 'down' : 'up')} accessibilityLabel="Toggle VP mode">
+              <View style={styles.vpToggleRow}>
+                <Text style={styles.statLabel}>VP</Text>
+                <View style={styles.vpToggle}>
+                  <Text style={[styles.vpTab, vpMode === 'up' && styles.vpTabOn]}>▲</Text>
+                  <Text style={[styles.vpTab, vpMode === 'down' && styles.vpTabOn]}>▼</Text>
+                </View>
+              </View>
+              <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {vpMode === 'up'
+                  ? (balances?.votingMana ? `${balances.votingMana}%` : '—')
+                  : (balances?.downvoteMana ? `${balances.downvoteMana}%` : '—')}
+              </Text>
+              <Text style={styles.statNote}>{vpMode === 'up' ? 'Upvote value' : 'Downvote value'}</Text>
+              <Text style={styles.statNoteValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {vpMode === 'up'
+                  ? mask(balances?.voteValue ? `$${balances.voteValue}` : '—')
+                  : mask(balances?.voteValue && balances?.downvoteMana && balances?.votingMana
+                      ? `$${((parseFloat(balances.voteValue) * parseFloat(balances.downvoteMana)) / Math.max(parseFloat(balances.votingMana || '1'), 1)).toFixed(2)}`
+                      : '—')}
+              </Text>
+            </Pressable>
             <View style={styles.statSplit} />
             <Stat
               label="RC"
@@ -268,9 +289,7 @@ export default function WalletScreen() {
                     key={account.name}
                     style={[styles.pickerRow, current && styles.pickerOn]}
                     onPress={() => { selectAccount(account.name); setPicker(false); }}>
-                    <View style={[styles.pickerAvatar, current && styles.pickerAvatarOn]}>
-                      <Text style={[styles.pickerAvatarText, current && styles.pickerAvatarTextOn]}>{account.name.slice(0, 1).toUpperCase()}</Text>
-                    </View>
+                    <AccountAvatar name={account.name} size={36} />
                     <Text style={[styles.pickerText, current && styles.pickerTextOn]} numberOfLines={1}>{account.name}</Text>
                     <Text style={styles.pickerMark}>{current ? '✓' : ''}</Text>
                   </Pressable>
@@ -344,7 +363,7 @@ function HistoryMark() {
 function ActivityMark() {
   const colors = useColors();
   return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
       <Path d="M6 16h12l-1.3-2.1V10a4.7 4.7 0 0 0-9.4 0v3.9L6 16z" stroke={colors.text} strokeWidth={2} strokeLinejoin="round" />
       <Path d="M10 16.5a2 2 0 0 0 4 0" stroke={colors.text} strokeWidth={2} strokeLinecap="round" />
     </Svg>
@@ -354,7 +373,7 @@ function ActivityMark() {
 function ScanMark() {
   const colors = useColors();
   return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
       <Path d="M4 8V5h3M16 5h3v3M19 16v3h-3M8 19H5v-3" stroke={colors.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       <Path d="M7 12h10" stroke={colors.text} strokeWidth={2} strokeLinecap="round" />
     </Svg>
@@ -456,10 +475,12 @@ function makeStyles(c: Palette) {
   content: {paddingHorizontal: 14, paddingTop: 4, paddingBottom: 18},
   header: {flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 6, paddingBottom: 10, backgroundColor: c.background},
   iconButton: {backgroundColor: c.card, borderRadius: 12, width: 40, height: 40, alignItems: 'center', justifyContent: 'center'},
+  tools: {flexDirection: 'row', alignItems: 'center', gap: 4},
+  toolButton: {backgroundColor: c.card, borderRadius: 10, width: 32, height: 32, alignItems: 'center', justifyContent: 'center'},
   headerBadge: {position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, overflow: 'hidden', backgroundColor: c.accent, color: c.onAccent, fontSize: 9, fontWeight: '800', textAlign: 'center', lineHeight: 16, paddingHorizontal: 3},
   iconText: {color: c.accentDeep, fontSize: 12, fontWeight: '700'},
   identity: {flex: 1},
-  nameRow: {flexDirection: 'row', alignItems: 'center', gap: 4},
+  nameRow: {flexDirection: 'row', alignItems: 'center', gap: 8},
   name: {color: c.text, fontSize: 15, fontWeight: '700', flexShrink: 1},
   caret: {width: 28, height: 18, alignItems: 'center', justifyContent: 'center'},
   pickerLayer: {position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20},
@@ -468,10 +489,6 @@ function makeStyles(c: Palette) {
   pickerLabel: {color: c.muted, fontSize: 12, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginLeft: 8, marginBottom: 8, marginTop: 4},
   pickerRow: {flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingVertical: 11, paddingHorizontal: 10, gap: 12},
   pickerOn: {backgroundColor: c.accentSoft},
-  pickerAvatar: {width: 36, height: 36, borderRadius: 18, backgroundColor: c.background, alignItems: 'center', justifyContent: 'center'},
-  pickerAvatarOn: {backgroundColor: c.accent},
-  pickerAvatarText: {color: c.text, fontSize: 15, fontWeight: '800'},
-  pickerAvatarTextOn: {color: c.onAccent},
   pickerText: {flex: 1, color: c.text, fontSize: 17, fontWeight: '700'},
   pickerTextOn: {color: c.accentDeep},
   pickerMark: {color: c.accent, fontSize: 18, fontWeight: '800', width: 20, textAlign: 'center'},
@@ -484,10 +501,14 @@ function makeStyles(c: Palette) {
   stats: {flexDirection: 'row', alignItems: 'stretch', marginTop: 12},
   stat: {flex: 1},
   statSplit: {width: StyleSheet.hairlineWidth, backgroundColor: c.line, marginHorizontal: 14},
-  statLabel: {color: c.muted, fontSize: 11, fontWeight: '700', letterSpacing: 0.8},
-  statValue: {color: c.text, fontSize: 22, fontWeight: '800', marginTop: 2},
-  statNote: {color: c.muted, fontSize: 11, fontWeight: '600', marginTop: 8},
-  statNoteValue: {color: c.text, fontSize: 14, fontWeight: '700', marginTop: 1},
+  statLabel: {color: c.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8},
+  statValue: {color: c.text, fontSize: 17, fontWeight: '800', marginTop: 2},
+  statNote: {color: c.muted, fontSize: 10, fontWeight: '600', marginTop: 6},
+  statNoteValue: {color: c.text, fontSize: 12, fontWeight: '700', marginTop: 1},
+  vpToggleRow: {flexDirection: 'row', alignItems: 'center', gap: 6},
+  vpToggle: {flexDirection: 'row', backgroundColor: c.background, borderRadius: 6, padding: 1, gap: 2},
+  vpTab: {color: c.muted, fontSize: 8, fontWeight: '800', paddingHorizontal: 14, paddingVertical: 3, borderRadius: 4, textAlign: 'center'},
+  vpTabOn: {color: c.accentDeep, backgroundColor: c.accentSoft},
   priceRow: {flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginTop: 8, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line},
   priceLine: {flexDirection: 'row', alignItems: 'center', gap: 6},
   priceName: {color: c.muted, fontSize: 12, fontWeight: '700', width: 48},

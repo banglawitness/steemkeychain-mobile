@@ -36,7 +36,7 @@ function WalletMark({selected}: {selected: boolean}) {
   const colors = useColors();
   const color = selected ? colors.onAccent : colors.text;
   return (
-    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Rect x="3" y="6" width="18" height="13" rx="3" stroke={color} strokeWidth={2} />
       <Path d="M3 10h18" stroke={color} strokeWidth={2} />
       <Path d="M16 14h2" stroke={color} strokeWidth={2} strokeLinecap="round" />
@@ -48,7 +48,7 @@ function AppsMark({selected}: {selected: boolean}) {
   const colors = useColors();
   const color = selected ? colors.onAccent : colors.text;
   return (
-    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Rect x="4" y="4" width="6.5" height="6.5" rx="1.6" stroke={color} strokeWidth={2} />
       <Rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" stroke={color} strokeWidth={2} />
       <Rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" stroke={color} strokeWidth={2} />
@@ -62,14 +62,14 @@ function makeStyles(c: Palette) {
     bar: {
       alignSelf: 'center',
       flexDirection: 'row',
-      gap: 8,
-      padding: 6,
-      borderRadius: 28,
+      gap: 6,
+      padding: 4,
+      borderRadius: 20,
       backgroundColor: c.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.line,
     },
-    item: {width: 52, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center'},
+    item: {width: 56, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center'},
     itemOn: {backgroundColor: c.accent},
   });
 }

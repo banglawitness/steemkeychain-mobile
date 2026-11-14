@@ -4,6 +4,7 @@ import {useEffect, useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import {useVault} from '../auth/VaultContext';
+import AccountAvatar from '../components/AccountAvatar';
 import {failureMessage} from '../browser/requests';
 import ConfirmSheet from '../components/ConfirmSheet';
 import PinPad from '../components/PinPad';
@@ -111,7 +112,10 @@ export default function AccountScreen() {
 
   return (
     <View style={styles.screen}>
-      <Text style={styles.name}>@{account.name}</Text>
+      <View style={styles.identity}>
+        <AccountAvatar name={account.name} size={40} />
+        <Text style={styles.name}>@{account.name}</Text>
+      </View>
       {ROLES.map(item => (
         <View key={item} style={styles.row}>
           <Text style={styles.keyLabel}>{label(item)} · {account.keys[item] ? 'saved' : 'missing'}</Text>
@@ -217,7 +221,8 @@ function Check({label: text, checked, onPress}: {label: string; checked: boolean
 function makeStyles(c: Palette) {
   return StyleSheet.create({
   screen: {flex: 1, backgroundColor: c.background, padding: 14},
-  name: {color: c.text, fontSize: 22, fontWeight: '700', marginBottom: 10},
+  name: {color: c.text, fontSize: 22, fontWeight: '700', flexShrink: 1},
+  identity: {flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10},
   row: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: c.card, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6, gap: 8},
   keyLabel: {color: c.text, flex: 1, fontSize: 15},
   actions: {flexDirection: 'row', gap: 6},

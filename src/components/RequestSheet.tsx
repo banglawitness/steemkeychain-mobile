@@ -3,6 +3,7 @@ import {ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, Vi
 import {describeRequest, KeychainRequest, requestCode, requestTitle, requiredRole} from '../browser/requests';
 import {Palette, useColors, useThemedStyles} from '../theme';
 import {StoredAccount} from '../types';
+import AccountAvatar from './AccountAvatar';
 
 type Props = {
   request: KeychainRequest;
@@ -40,7 +41,12 @@ export default function RequestSheet({request, accounts, activeName, onApprove, 
           </View>
           <Text style={styles.role}>{role}</Text>
         </View>
-        {account ? <Text style={styles.account}>@{account.name}</Text> : null}
+        {account ? (
+          <View style={styles.accountRow}>
+            <AccountAvatar name={account.name} size={28} />
+            <Text style={styles.account}>@{account.name}</Text>
+          </View>
+        ) : null}
         {lines.length ? (
           <View style={styles.details}>
             {lines.map(line => (
@@ -156,11 +162,12 @@ function makeStyles(c: Palette) {
     fontSize: 13,
     lineHeight: 18,
   },
+  accountRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10},
   account: {
     color: c.muted,
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 10,
+    flexShrink: 1,
   },
   codeCard: {
     backgroundColor: c.background,
